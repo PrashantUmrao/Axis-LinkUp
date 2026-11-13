@@ -87,6 +87,16 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     description: 'Personalized student academic workspace and collegiate notices.',
   },
   {
+    id: 'student-messages',
+    title: 'Messages',
+    href: '/student/messages',
+    iconName: 'MessageSquare',
+    roles: ['student'],
+    permission: PERMISSIONS.CHAT_SEND_COURSE_MESSAGE,
+    category: 'primary',
+    description: 'Direct proctorial messaging and academic discussion channels.',
+  },
+  {
     id: 'faculty-dashboard',
     title: 'Dashboard',
     href: '/faculty/dashboard',
@@ -97,6 +107,16 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     description: 'Faculty classroom management, grading and course notices.',
   },
   {
+    id: 'faculty-messages',
+    title: 'Messages & Groups',
+    href: '/faculty/messages',
+    iconName: 'MessageSquare',
+    roles: ['faculty'],
+    permission: PERMISSIONS.CHAT_SEND_COURSE_MESSAGE,
+    category: 'primary',
+    description: 'Manage academic communication channels and student advisories.',
+  },
+  {
     id: 'admin-dashboard',
     title: 'Dashboard',
     href: '/admin/dashboard',
@@ -105,6 +125,17 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     permission: PERMISSIONS.ADMIN_DASH_VIEW,
     category: 'primary',
     description: 'Departmental administration and approval workflows.',
+  },
+  {
+    id: 'admin-messages',
+    title: 'Communications',
+    href: '/admin/messages',
+    iconName: 'MessageSquare',
+    roles: ['admin', 'super_admin'],
+    permission: PERMISSIONS.CHAT_SEND_COURSE_MESSAGE,
+    category: 'primary',
+    description:
+      'Executive governance dispatch, departmental HOD channels, and administrative broadcasts.',
   },
   {
     id: 'super-admin-dashboard',
@@ -118,6 +149,16 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
   },
 
   // ==================== STUDENT MODULES ====================
+  {
+    id: 'student-complaints',
+    title: 'Complaints & Redressal',
+    href: '/student/complaints',
+    iconName: 'Scale',
+    roles: ['student'],
+    permission: PERMISSIONS.REQUESTS_SUBMIT,
+    category: 'modules',
+    description: 'AICTE / UGC Mandated Student Grievance Redressal and Higher Authority Petitions.',
+  },
   {
     id: 'student-notices',
     title: 'Campus Notices',
@@ -169,6 +210,16 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
 
   // ==================== FACULTY MODULES ====================
   {
+    id: 'faculty-complaints',
+    title: 'Student Grievances',
+    href: '/faculty/complaints',
+    iconName: 'Scale',
+    roles: ['faculty'],
+    permission: PERMISSIONS.REQUESTS_APPROVE_REJECT,
+    category: 'modules',
+    description: 'HOD Department Student Grievance Adjudication & Redressal Desk.',
+  },
+  {
     id: 'faculty-notices',
     title: 'Course Notices',
     href: '/faculty/notices',
@@ -206,6 +257,16 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
   },
 
   // ==================== ADMINISTRATOR MODULES ====================
+  {
+    id: 'admin-complaints',
+    title: 'Grievances & Appeals',
+    href: '/admin/complaints',
+    iconName: 'Landmark',
+    roles: ['admin', 'super_admin'],
+    permission: PERMISSIONS.REQUESTS_APPROVE_REJECT,
+    category: 'modules',
+    description: 'Executive Director Higher Authority Grievance Tribunal and Appeals.',
+  },
   {
     id: 'admin-notices',
     title: 'College Circulars',
@@ -326,6 +387,10 @@ export function getBreadcrumbsForPath(
 
   if (pathname.includes('/dashboard')) {
     breadcrumbs.push({ label: 'Dashboard' });
+  } else if (pathname.includes('/messages')) {
+    breadcrumbs.push({ label: 'Messages' });
+  } else if (pathname.includes('/complaints')) {
+    breadcrumbs.push({ label: 'Complaints & Communication' });
   } else if (pathname.includes('/profile')) {
     breadcrumbs.push({ label: 'Profile & Settings' });
   } else if (pathname.includes('/notices')) {

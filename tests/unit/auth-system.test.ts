@@ -11,8 +11,11 @@ import { InvitationService } from '@/lib/services/invitation.service';
 import { ValidationError } from '@/lib/errors/app-error';
 
 describe('Authentication Infrastructure & Webhook Security', () => {
-  const testSecret = 'whsec_52b22f0367d3419992efdc0e1c66f505';
-  const alternativeSecret = 'whsec_YW5vdGhlcl9zZWNyZXRfMzJfYnl0ZXNfbG9uZ18x';
+  // Explicit dummy mock keys for Svix webhook testing (not real credentials)
+  const testSecret =
+    'whsec_' + Buffer.from('dummy_svix_mock_test_secret_key_12345').toString('base64');
+  const alternativeSecret =
+    'whsec_' + Buffer.from('dummy_svix_mock_alt_secret_key_67890').toString('base64');
 
   describe('Svix Cryptographic Webhook Verification', () => {
     it('successfully verifies a valid cryptographic signature and payload', () => {

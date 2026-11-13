@@ -88,7 +88,7 @@ Navigate to [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas) and s
 2. Create or open `.env.local` in the project root:
    ```env
    NODE_ENV=development
-   MONGODB_URI=mongodb+srv://axis_linkup_app:YOUR_ACTUAL_PASSWORD@axis-linkup-cluster.xxxxx.mongodb.net/axis_linkup?retryWrites=true&w=majority
+   MONGODB_URI=mongodb+srv://<db_username>:<db_password>@<cluster-url>/axis_linkup?retryWrites=true&w=majority
    ```
 3. Verify `.gitignore` contains:
    ```gitignore

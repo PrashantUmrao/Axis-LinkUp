@@ -26,6 +26,12 @@ describe('Global Application Layout & Role-Based Navigation', () => {
     '/super-admin/dashboard',
     '/shared/profile',
     '/ui-preview',
+    '/student/messages',
+    '/faculty/messages',
+    '/admin/messages',
+    '/student/complaints',
+    '/faculty/complaints',
+    '/admin/complaints',
   ]);
 
   describe('1. Institutional Portal Metadata', () => {

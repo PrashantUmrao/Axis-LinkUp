@@ -6,18 +6,9 @@
 import type { UserRole } from './user';
 
 export type ComplaintCategory =
-  | 'academic'
-  | 'lab_infrastructure'
-  | 'harassment'
-  | 'administrative'
-  | 'fee_accounts';
+  'academic' | 'lab_infrastructure' | 'harassment' | 'administrative' | 'fee_accounts';
 
-export type ComplaintStatus =
-  | 'submitted'
-  | 'under_review'
-  | 'responded'
-  | 'resolved'
-  | 'escalated';
+export type ComplaintStatus = 'submitted' | 'under_review' | 'responded' | 'resolved' | 'escalated';
 
 export type ComplaintRecipientRole = 'hod' | 'director';
 

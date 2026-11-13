@@ -21,11 +21,11 @@ import {
 } from '@/components/ui';
 import {
   UserCircle,
-  Eye,
+  MessageSquare,
+  Scale,
   Megaphone,
   ClipboardCheck,
   Calendar,
-  BarChart3,
   Sparkles,
   ArrowRight,
 } from 'lucide-react';
@@ -33,24 +33,34 @@ import {
 export function FacultyQuickActions() {
   const actions = [
     {
+      id: 'faculty-messages',
+      title: 'Messages & Groups',
+      description: 'Moderate academic cohorts & advise students',
+      href: '/faculty/messages',
+      icon: MessageSquare,
+      isLive: true,
+      color: 'text-primary',
+      bgColor: 'bg-primary/10',
+    },
+    {
+      id: 'faculty-complaints',
+      title: 'Student Grievances',
+      description: 'HOD department grievance adjudication & SLA',
+      href: '/faculty/complaints',
+      icon: Scale,
+      isLive: true,
+      color: 'text-indigo-500',
+      bgColor: 'bg-indigo-500/10',
+    },
+    {
       id: 'faculty-profile',
       title: 'Faculty Dossier',
-      description: 'Review academic designations, office hours, & IAM credentials',
+      description: 'Review designations, office hours, & IAM status',
       href: '/shared/profile',
       icon: UserCircle,
       isLive: true,
       color: 'text-emerald-500',
       bgColor: 'bg-emerald-500/10',
-    },
-    {
-      id: 'ui-preview',
-      title: 'UI Design System',
-      description: 'Inspect design tokens & component showcase',
-      href: '/ui-preview',
-      icon: Eye,
-      isLive: true,
-      color: 'text-indigo-500',
-      bgColor: 'bg-indigo-500/10',
     },
     {
       id: 'course-notices',
@@ -73,17 +83,6 @@ export function FacultyQuickActions() {
       color: 'text-cyan-500',
       bgColor: 'bg-cyan-500/10',
       tooltip: 'Coursework evaluation workflows will activate in Phase 5.',
-    },
-    {
-      id: 'course-polls',
-      title: 'Classroom Polls',
-      description: 'Collect student feedback & interactive voting',
-      href: '/faculty/polls',
-      icon: BarChart3,
-      isLive: false,
-      color: 'text-primary',
-      bgColor: 'bg-primary/10',
-      tooltip: 'Interactive polls module will activate in Phase 5.',
     },
     {
       id: 'teaching-calendar',

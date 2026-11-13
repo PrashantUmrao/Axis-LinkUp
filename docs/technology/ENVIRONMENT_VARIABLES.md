@@ -43,7 +43,7 @@ Environment variables are partitioned into two strict security tiers:
 | Variable Name | Description | Environment Scope | Example / Format | Required in MVP? |
 | :--- | :--- | :--- | :--- | :---: |
 | `NODE_ENV` | Application execution environment flag. | All | `development` / `production` / `test` | **Yes** |
-| `MONGODB_URI` | Full connection string to MongoDB Atlas replica set with credentials and database name. | All | `mongodb+srv://user:pass@cluster.mongodb.net/axis_linkup?retryWrites=true&w=majority` | **Yes** |
+| `MONGODB_URI` | Full connection string to MongoDB Atlas replica set with credentials and database name. | All | `mongodb+srv://<username>:<password>@<cluster>.mongodb.net/axis_linkup?retryWrites=true&w=majority` | **Yes** |
 | `CLERK_SECRET_KEY` | Master server secret key used to mutate user roles in `publicMetadata` and provision users. | All | `sk_test_...` (Dev) / `sk_live_...` (Prod) | **Yes** |
 | `CLERK_WEBHOOK_SECRET` | Cryptographic secret provided by Clerk to verify Svix signatures on incoming webhooks. | All | `whsec_...` | **Yes** |
 | `ABLY_API_KEY` | Master Ably API key used for generating client token requests and REST publishing. | All | `AppId.KeyId:Secret` | **Yes** |

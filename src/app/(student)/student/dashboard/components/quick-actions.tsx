@@ -21,11 +21,11 @@ import {
 } from '@/components/ui';
 import {
   UserCircle,
-  Eye,
+  MessageSquare,
+  Scale,
   Bell,
   FileCheck2,
   Calendar,
-  Inbox,
   Sparkles,
   ArrowRight,
 } from 'lucide-react';
@@ -33,24 +33,34 @@ import {
 export function StudentQuickActions() {
   const actions = [
     {
+      id: 'messages',
+      title: 'Collegiate Messages',
+      description: 'Direct proctorial chats & academic groups',
+      href: '/student/messages',
+      icon: MessageSquare,
+      isLive: true,
+      color: 'text-primary',
+      bgColor: 'bg-primary/10',
+    },
+    {
+      id: 'complaints',
+      title: 'Grievance Redressal',
+      description: 'Statutory AICTE / UGC petitions to HOD & Director',
+      href: '/student/complaints',
+      icon: Scale,
+      isLive: true,
+      color: 'text-indigo-500',
+      bgColor: 'bg-indigo-500/10',
+    },
+    {
       id: 'profile',
       title: 'Student Profile',
       description: 'Review institutional credentials & IAM status',
       href: '/shared/profile',
       icon: UserCircle,
       isLive: true,
-      color: 'text-primary',
-      bgColor: 'bg-primary/10',
-    },
-    {
-      id: 'ui-preview',
-      title: 'UI Design System',
-      description: 'Inspect design tokens & component showcase',
-      href: '/ui-preview',
-      icon: Eye,
-      isLive: true,
-      color: 'text-indigo-500',
-      bgColor: 'bg-indigo-500/10',
+      color: 'text-emerald-500',
+      bgColor: 'bg-emerald-500/10',
     },
     {
       id: 'notices',
@@ -81,20 +91,9 @@ export function StudentQuickActions() {
       href: '/student/calendar',
       icon: Calendar,
       isLive: false,
-      color: 'text-emerald-500',
-      bgColor: 'bg-emerald-500/10',
-      tooltip: 'Lecture schedule will synchronize in Phase 5.',
-    },
-    {
-      id: 'requests',
-      title: 'Service Requests',
-      description: 'Bonafide, leave, & hostel pass requisitions',
-      href: '/student/requests',
-      icon: Inbox,
-      isLive: false,
       color: 'text-rose-500',
       bgColor: 'bg-rose-500/10',
-      tooltip: 'Student service ticketing will activate in Phase 5.',
+      tooltip: 'Lecture schedule will synchronize in Phase 5.',
     },
   ];
 

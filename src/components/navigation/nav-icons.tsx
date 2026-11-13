@@ -32,6 +32,9 @@ import {
   LogOut,
   Settings,
   ShieldCheck,
+  MessageSquare,
+  Scale,
+  Landmark,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -63,6 +66,9 @@ const ICON_MAP: Record<string, LucideIcon> = {
   LogOut,
   Settings,
   ShieldCheck,
+  MessageSquare,
+  Scale,
+  Landmark,
 };
 
 interface NavIconProps extends React.SVGProps<SVGSVGElement> {

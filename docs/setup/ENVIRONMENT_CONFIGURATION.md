@@ -101,7 +101,7 @@ To eliminate fragile, scattered `process.env` lookups throughout the codebase, a
 2. Open `.env.local` in your editor and enter your private MongoDB Atlas connection string:
    ```env
    NODE_ENV=development
-   MONGODB_URI=mongodb+srv://axis_linkup_app:YOUR_REAL_PASSWORD@axis-linkup-cluster.xxxxx.mongodb.net/axis_linkup?retryWrites=true&w=majority
+   MONGODB_URI=mongodb+srv://<db_username>:<db_password>@<cluster-url>/axis_linkup?retryWrites=true&w=majority
    ```
 3. Restart your development server:
    ```bash
