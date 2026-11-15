@@ -6,21 +6,51 @@
  * Locks complainant identity to authenticated user profile to prevent impersonation.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Card, CardHeader, CardTitle, Button, Input, Textarea, Badge } from '@/components/ui';
-import { Scale, Landmark, ShieldCheck, Send, Paperclip, AlertCircle, User } from 'lucide-react';
+import {
+  Scale,
+  Landmark,
+  ShieldCheck,
+  Send,
+  Paperclip,
+  AlertCircle,
+  User,
+  X,
+  FileCheck,
+  Flame,
+} from 'lucide-react';
 import type { UserDTO } from '@/types/user';
 import type {
   ComplaintCategory,
+  ComplaintPriority,
   ComplaintRecipientRole,
-  ComplaintTicket,
+  ComplaintDTO,
 } from '@/types/complaints';
 
 interface ComplaintComposeFormProps {
   user: UserDTO;
-  onComplaintSubmitted: (complaint: ComplaintTicket) => void;
+  onComplaintSubmitted: (complaint: ComplaintDTO) => void;
   onCancel: () => void;
 }
+
+const STATUTORY_CATEGORIES: Array<{ key: ComplaintCategory; label: string }> = [
+  { key: 'academic', label: 'Academic & Evaluation' },
+  { key: 'lab_infrastructure', label: 'Lab & Infrastructure' },
+  { key: 'hostel', label: 'Hostel & Residential' },
+  { key: 'harassment', label: 'Harassment & Anti-Ragging' },
+  { key: 'fee_accounts', label: 'Fee & Account Clearance' },
+  { key: 'administrative', label: 'Administrative Services' },
+  { key: 'examination', label: 'Examination & Records' },
+  { key: 'other', label: 'Other General Inquiries' },
+];
+
+const PRIORITY_OPTIONS: Array<{ key: ComplaintPriority; label: string; badgeVariant: 'outline' | 'info' | 'warning' | 'destructive' }> = [
+  { key: 'low', label: 'Low', badgeVariant: 'outline' },
+  { key: 'medium', label: 'Medium', badgeVariant: 'info' },
+  { key: 'high', label: 'High', badgeVariant: 'warning' },
+  { key: 'urgent', label: 'Urgent', badgeVariant: 'destructive' },
+];
 
 export function ComplaintComposeForm({
   user,
@@ -29,49 +59,99 @@ export function ComplaintComposeForm({
 }: ComplaintComposeFormProps) {
   const [recipientRole, setRecipientRole] = useState<ComplaintRecipientRole>('hod');
   const [category, setCategory] = useState<ComplaintCategory>('academic');
+  const [priority, setPriority] = useState<ComplaintPriority>('medium');
   const [subject, setSubject] = useState('');
   const [narrative, setNarrative] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [attachmentName, setAttachmentName] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const studentRoll = user.studentProfile?.rollNumber || '2101330100045';
-  const departmentName = 'Computer Science & Engineering';
+  const [attachedFile, setAttachedFile] = useState<{
+    name: string;
+    url: string;
+    sizeBytes: number;
+    mimeType: string;
+  } | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const studentRoll = user.studentProfile?.rollNumber || 'Enrolled Student';
+  const departmentName = user.studentProfile?.program || 'Collegiate Department';
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      setErrorMessage('Attachment cannot exceed 25MB statutory limit.');
+      return;
+    }
+
+    // In environments without client-direct Cloudinary presigned upload,
+    // construct attachment metadata payload with standard object reference
+    const safeUrl = `https://storage.axislinkup.internal/evidence/${Date.now()}_${encodeURIComponent(
+      file.name
+    )}`;
+
+    setAttachedFile({
+      name: file.name,
+      url: safeUrl,
+      sizeBytes: file.size,
+      mimeType: file.type || 'application/octet-stream',
+    });
+    setErrorMessage(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subject.trim() || !narrative.trim()) return;
+    if (!subject.trim() || !narrative.trim()) {
+      setErrorMessage('Subject and petition grounds narrative are required.');
+      return;
+    }
+
+    if (subject.trim().length < 5) {
+      setErrorMessage('Petition subject must be at least 5 characters.');
+      return;
+    }
+
+    if (narrative.trim().length < 10) {
+      setErrorMessage('Detailed statement must be at least 10 characters.');
+      return;
+    }
 
     setIsSubmitting(true);
+    setErrorMessage(null);
 
-    const ticketNumber = `CMP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newComplaint: ComplaintTicket = {
-      id: `cmp-${Date.now()}`,
-      ticketNumber,
-      studentId: user.id,
-      studentName: user.fullName,
-      studentRoll,
-      studentEmail: user.email,
-      department: departmentName,
-      recipientRole,
-      recipientName:
-        recipientRole === 'hod'
-          ? 'Head of Department (Dr. R. K. Verma)'
-          : 'Executive Director (Ombudsman Tribunal)',
-      category,
-      subject: subject.trim(),
-      narrative: narrative.trim(),
-      submittedAt: 'Just now',
-      updatedAt: 'Just now',
-      status: 'submitted',
-      slaRemainingHours: recipientRole === 'hod' ? 48 : 168,
-      attachments: attachmentName ? [attachmentName] : [],
-      responses: [],
-    };
+    try {
+      const attachmentsPayload = attachedFile ? [attachedFile] : undefined;
 
-    setTimeout(() => {
-      onComplaintSubmitted(newComplaint);
+      const res = await fetch('/api/v1/complaints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientRole,
+          category,
+          priority,
+          subject: subject.trim(),
+          description: narrative.trim(),
+          attachments: attachmentsPayload,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error?.message || json.message || 'Failed to submit grievance');
+      }
+
+      onComplaintSubmitted(json.data as ComplaintDTO);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : 'Failed to transmit grievance petition to registry. Please try again.'
+      );
+    } finally {
       setIsSubmitting(false);
-    }, 600);
+    }
   };
 
   return (
@@ -96,6 +176,13 @@ export function ComplaintComposeForm({
           Signed Identity
         </Badge>
       </CardHeader>
+
+      {errorMessage && (
+        <div className="bg-destructive/10 border-destructive/20 text-destructive flex items-center gap-2 rounded-xl border p-3 text-xs">
+          <AlertCircle className="size-4 shrink-0" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Authenticated Identity Assurance Strip */}
@@ -143,8 +230,7 @@ export function ComplaintComposeForm({
                 <span>Head of Department (HOD)</span>
               </div>
               <p className="text-muted-foreground mt-1 text-[11px]">
-                First-tier departmental authority. Academic concerns, lab facilities, and faculty
-                queries.
+                First-tier departmental authority. Academic concerns, lab facilities, and departmental matters.
               </p>
               <span className="text-primary mt-2 inline-block font-mono text-[10px]">
                 SLA: 48 Business Hours
@@ -165,11 +251,10 @@ export function ComplaintComposeForm({
                 <span>Executive Director (Ombudsman)</span>
               </div>
               <p className="text-muted-foreground mt-1 text-[11px]">
-                Highest campus appellate authority. Severe grievances, departmental appeals, or
-                institutional matters.
+                Highest campus appellate authority. Severe grievances, departmental appeals, or institutional matters.
               </p>
               <span className="mt-2 inline-block font-mono text-[10px] text-indigo-500">
-                SLA: 7 Calendar Days
+                SLA: 7 Calendar Days (168h)
               </span>
             </button>
           </div>
@@ -179,15 +264,7 @@ export function ComplaintComposeForm({
         <div className="space-y-2">
           <label className="text-foreground text-xs font-semibold">Grievance Classification</label>
           <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ['academic', 'Academic & Evaluation'],
-                ['lab_infrastructure', 'Lab & Infrastructure'],
-                ['harassment', 'Harassment / Anti-Ragging'],
-                ['fee_accounts', 'Fee & Account Clearance'],
-                ['administrative', 'Administrative Services'],
-              ] as const
-            ).map(([key, label]) => (
+            {STATUTORY_CATEGORIES.map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
@@ -204,6 +281,33 @@ export function ComplaintComposeForm({
           </div>
         </div>
 
+        {/* Priority Rating */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Flame className="size-3.5 text-amber-500" />
+            <label className="text-foreground text-xs font-semibold">Urgency / Priority Level</label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {PRIORITY_OPTIONS.map(({ key, label, badgeVariant }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPriority(key)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  priority === key
+                    ? 'border-primary bg-primary/10 text-primary ring-primary/30 border ring-1'
+                    : 'bg-card/40 border-glass-border text-muted-foreground hover:bg-muted/40 hover:text-foreground border'
+                }`}
+              >
+                <Badge variant={badgeVariant} className="mr-1.5 px-1 py-0 text-[9px] uppercase">
+                  {key}
+                </Badge>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Subject */}
         <div className="space-y-1.5">
           <label className="text-foreground text-xs font-semibold">Petition Subject</label>
@@ -213,13 +317,14 @@ export function ComplaintComposeForm({
             onChange={(e) => setSubject(e.target.value)}
             className="bg-card/40 border-glass-border h-10 text-xs sm:text-sm"
             required
+            maxLength={200}
           />
         </div>
 
-        {/* Narrative */}
+        {/* Narrative Description */}
         <div className="space-y-1.5">
           <label className="text-foreground text-xs font-semibold">
-            Detailed Statement &amp; Facts
+            Detailed Statement &amp; Factual Grounds
           </label>
           <Textarea
             placeholder="Please detail the relevant timeline, courses, lab workstations, or faculty interactions with factual objectivity..."
@@ -227,16 +332,23 @@ export function ComplaintComposeForm({
             onChange={(e) => setNarrative(e.target.value)}
             className="bg-card/40 border-glass-border min-h-[140px] text-xs leading-relaxed sm:text-sm"
             required
+            maxLength={10000}
           />
         </div>
 
         {/* Supporting Document / Attachment Trigger */}
         <div className="bg-card/40 border-glass-border flex flex-col justify-between gap-3 rounded-xl border p-3 text-xs sm:flex-row sm:items-center">
           <div className="text-muted-foreground flex items-center gap-2">
-            <Paperclip className="text-primary size-4" />
+            <Paperclip className="text-primary size-4 shrink-0" />
             <span>
-              {attachmentName ? (
-                <strong className="text-foreground">{attachmentName}</strong>
+              {attachedFile ? (
+                <span className="flex items-center gap-1.5">
+                  <FileCheck className="size-3.5 text-emerald-500" />
+                  <strong className="text-foreground">{attachedFile.name}</strong>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    ({(attachedFile.sizeBytes / 1024).toFixed(1)} KB)
+                  </span>
+                </span>
               ) : (
                 'Attach supporting evidence, medical slips, or clearance proofs (PDF, JPG, PNG).'
               )}
@@ -244,12 +356,19 @@ export function ComplaintComposeForm({
           </div>
 
           <div className="flex items-center gap-2">
-            {!attachmentName ? (
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              className="hidden"
+            />
+            {!attachedFile ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setAttachmentName('Medical_Certificate_AITM.pdf')}
+                onClick={() => fileInputRef.current?.click()}
                 className="border-glass-border h-7 text-xs"
               >
                 Attach Proof
@@ -259,9 +378,13 @@ export function ComplaintComposeForm({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setAttachmentName(null)}
-                className="text-destructive h-7 text-xs"
+                onClick={() => {
+                  setAttachedFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="text-destructive h-7 gap-1 text-xs"
               >
+                <X className="size-3" />
                 Remove
               </Button>
             )}
@@ -281,6 +404,7 @@ export function ComplaintComposeForm({
               variant="outline"
               size="sm"
               onClick={onCancel}
+              disabled={isSubmitting}
               className="text-xs"
             >
               Cancel
@@ -290,10 +414,10 @@ export function ComplaintComposeForm({
               variant="pill-primary"
               size="sm"
               disabled={isSubmitting || !subject.trim() || !narrative.trim()}
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs shadow-xs"
             >
               <Send className="size-3.5" />
-              <span>{isSubmitting ? 'Transmitting...' : 'Submit Petition'}</span>
+              <span>{isSubmitting ? 'Transmitting to Registry...' : 'Submit Petition'}</span>
             </Button>
           </div>
         </div>

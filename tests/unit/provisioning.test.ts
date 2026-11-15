@@ -643,8 +643,8 @@ describe('Phase 5.2.3 — 6. Successful Provisioning Pipeline & DTO Verification
 
     assert.strictEqual(result.status, 'active');
     assert.strictEqual(result.isEmailVerified, true);
-    assert.strictEqual(passedClerkPayload?.password, 'SecurePassword123!');
-    assert.strictEqual(passedClerkPayload?.skipPasswordRequirement, undefined);
+    assert.strictEqual((passedClerkPayload as Record<string, unknown> | null)?.password, 'SecurePassword123!');
+    assert.strictEqual((passedClerkPayload as Record<string, unknown> | null)?.skipPasswordRequirement, undefined);
 
     mock.reset();
   });

@@ -13,3 +13,4 @@ export * from './password-recovery.service';
 export * from './profile.service';
 export * from './notice.service';
 export * from './poll.service';
+export * from './complaint.service';

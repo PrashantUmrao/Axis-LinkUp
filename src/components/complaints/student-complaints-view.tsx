@@ -6,37 +6,92 @@
  * Provides complete petition tracking, SLA status indicators, and compose integration.
  */
 
-import React, { useState } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
-import { Scale, Plus, Clock, ChevronRight, Landmark } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Card, Badge, Button, Input } from '@/components/ui';
+import {
+  Scale,
+  Plus,
+  Clock,
+  ChevronRight,
+  Landmark,
+  Search,
+  AlertTriangle,
+  Inbox,
+  Filter,
+} from 'lucide-react';
 import { ComplaintComposeForm } from './complaint-compose-form';
 import { ComplaintDetailModal } from './complaint-detail-modal';
-import type { ComplaintTicket, ComplaintStatus } from '@/types/complaints';
+import { EmptyState } from '@/components/ui/empty-state';
+import { LoadingSpinner } from '@/components/ui/loading-state';
+import type { ComplaintDTO, ComplaintStatus, ComplaintCategory } from '@/types/complaints';
 import type { UserDTO } from '@/types/user';
 
 interface StudentComplaintsViewProps {
   user: UserDTO;
-  initialComplaints: ComplaintTicket[];
+  initialComplaints?: ComplaintDTO[];
 }
 
-export function StudentComplaintsView({ user, initialComplaints }: StudentComplaintsViewProps) {
-  const [complaints, setComplaints] = useState<ComplaintTicket[]>(initialComplaints);
-  const [activeFilter, setActiveFilter] = useState<
-    'all' | 'submitted' | 'under_review' | 'responded' | 'resolved'
-  >('all');
+export function StudentComplaintsView({ user, initialComplaints = [] }: StudentComplaintsViewProps) {
+  const [complaints, setComplaints] = useState<ComplaintDTO[]>(initialComplaints);
+  const [activeFilter, setActiveFilter] = useState<'all' | ComplaintStatus>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | ComplaintCategory>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isComposing, setIsComposing] = useState(false);
-  const [selectedComplaint, setSelectedComplaint] = useState<ComplaintTicket | null>(null);
+  const [selectedComplaint, setSelectedComplaint] = useState<ComplaintDTO | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const filteredComplaints = complaints.filter((c) => {
-    if (activeFilter === 'all') return true;
-    return c.status === activeFilter;
-  });
+  // Fetch complaints from live API
+  const refreshComplaints = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/v1/complaints?page=1&limit=50');
+      const json = await res.json();
+      if (res.ok && json.success && Array.isArray(json.data)) {
+        setComplaints(json.data as ComplaintDTO[]);
+      }
+    } catch (err) {
+      console.error('Failed to load student complaints', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const handleComplaintSubmitted = (newComplaint: ComplaintTicket) => {
-    setComplaints((prev) => [newComplaint, ...prev]);
+  const handleComplaintSubmitted = (newComplaint: ComplaintDTO) => {
+    setComplaints((prev) => [newComplaint, ...prev.filter((c) => c.id !== newComplaint.id)]);
     setIsComposing(false);
     setSelectedComplaint(newComplaint);
   };
+
+  const handleComplaintUpdated = (updatedComplaint: ComplaintDTO) => {
+    setComplaints((prev) =>
+      prev.map((c) => (c.id === updatedComplaint.id ? updatedComplaint : c))
+    );
+    setSelectedComplaint(updatedComplaint);
+  };
+
+  const filteredComplaints = complaints.filter((c) => {
+    if (activeFilter !== 'all' && c.status !== activeFilter) return false;
+    if (selectedCategory !== 'all' && c.category !== selectedCategory) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchSubject = c.subject.toLowerCase().includes(q);
+      const matchTicket = c.ticketNumber.toLowerCase().includes(q);
+      if (!matchSubject && !matchTicket) return false;
+    }
+    return true;
+  });
+
+  // Calculate live KPIs
+  const totalCount = complaints.length;
+  const activeCount = complaints.filter(
+    (c) => c.status === 'submitted' || c.status === 'under_review' || c.status === 'in_progress'
+  ).length;
+  const resolvedCount = complaints.filter(
+    (c) => c.status === 'resolved' || c.status === 'closed'
+  ).length;
+  const breachedCount = complaints.filter(
+    (c) => c.sla?.isBreached || (c.slaRemainingHours !== undefined && c.slaRemainingHours <= 0 && c.status !== 'closed' && c.status !== 'resolved')
+  ).length;
 
   const getStatusBadge = (status: ComplaintStatus) => {
     switch (status) {
@@ -44,12 +99,22 @@ export function StudentComplaintsView({ user, initialComplaints }: StudentCompla
         return <Badge variant="outline">Submitted</Badge>;
       case 'under_review':
         return <Badge variant="warning">Under Review</Badge>;
+      case 'in_progress':
+        return <Badge variant="info">In Progress</Badge>;
       case 'responded':
         return <Badge variant="info">Responded</Badge>;
       case 'resolved':
         return <Badge variant="success">Resolved</Badge>;
+      case 'closed':
+        return <Badge variant="outline">Closed</Badge>;
       case 'escalated':
         return <Badge variant="destructive">Escalated</Badge>;
+      case 'reopened':
+        return <Badge variant="warning">Reopened</Badge>;
+      case 'rejected':
+        return <Badge variant="destructive">Rejected</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
     }
   };
 
@@ -71,8 +136,7 @@ export function StudentComplaintsView({ user, initialComplaints }: StudentCompla
               </Badge>
             </div>
             <p className="text-muted-foreground text-xs">
-              Official collegiate grievance portal for academic, infrastructure, and administrative
-              petitions
+              Official collegiate grievance portal for academic, infrastructure, and administrative petitions
             </p>
           </div>
         </div>
@@ -89,189 +153,221 @@ export function StudentComplaintsView({ user, initialComplaints }: StudentCompla
         </Button>
       </div>
 
-      {/* KPI Status Strip */}
+      {/* KPI Overview Strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="bg-card/40 border-glass-border space-y-1 rounded-xl border p-3.5">
-          <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+        <Card variant="glass" className="p-3.5 space-y-1">
+          <span className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
             Total Filed
           </span>
-          <div className="font-heading text-foreground text-2xl font-bold">{complaints.length}</div>
-          <p className="text-muted-foreground text-[10px]">All logged petitions</p>
-        </div>
-
-        <div className="bg-card/40 border-glass-border space-y-1 rounded-xl border p-3.5">
-          <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-            Under Review
+          <div className="text-foreground text-xl font-bold font-mono">{totalCount}</div>
+        </Card>
+        <Card variant="glass" className="p-3.5 space-y-1">
+          <span className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+            Under Investigation
           </span>
-          <div className="font-heading text-2xl font-bold text-amber-500">
-            {
-              complaints.filter((c) => c.status === 'under_review' || c.status === 'submitted')
-                .length
-            }
-          </div>
-          <p className="text-muted-foreground text-[10px]">Active in inquiry</p>
-        </div>
-
-        <div className="bg-card/40 border-glass-border space-y-1 rounded-xl border p-3.5">
-          <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-            Official Responses
+          <div className="text-amber-500 text-xl font-bold font-mono">{activeCount}</div>
+        </Card>
+        <Card variant="glass" className="p-3.5 space-y-1">
+          <span className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+            Resolved / Concluded
           </span>
-          <div className="font-heading text-2xl font-bold text-sky-500">
-            {complaints.filter((c) => c.status === 'responded').length}
-          </div>
-          <p className="text-muted-foreground text-[10px]">Awaiting your review</p>
-        </div>
-
-        <div className="bg-card/40 border-glass-border space-y-1 rounded-xl border p-3.5">
-          <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-            Resolved
+          <div className="text-emerald-500 text-xl font-bold font-mono">{resolvedCount}</div>
+        </Card>
+        <Card variant="glass" className="p-3.5 space-y-1">
+          <span className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+            SLA Attention
           </span>
-          <div className="font-heading text-2xl font-bold text-emerald-500">
-            {complaints.filter((c) => c.status === 'resolved').length}
+          <div className={`text-xl font-bold font-mono ${breachedCount > 0 ? 'text-rose-500' : 'text-muted-foreground'}`}>
+            {breachedCount}
           </div>
-          <p className="text-muted-foreground text-[10px]">Case closed</p>
-        </div>
+        </Card>
       </div>
 
-      {/* If Compose Active, Render Form */}
-      {isComposing ? (
+      {/* Compose Form Overlay */}
+      {isComposing && (
         <ComplaintComposeForm
           user={user}
           onComplaintSubmitted={handleComplaintSubmitted}
           onCancel={() => setIsComposing(false)}
         />
-      ) : (
-        <div className="space-y-4">
-          {/* Filter Pills */}
-          <div className="border-border/30 flex items-center gap-1.5 overflow-x-auto border-b pb-2">
-            {(
-              [
-                ['all', 'All Complaints'],
-                ['submitted', 'Submitted'],
-                ['under_review', 'Under Review'],
-                ['responded', 'Responded'],
-                ['resolved', 'Resolved'],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setActiveFilter(key)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                  activeFilter === key
-                    ? 'bg-primary text-primary-foreground shadow-xs'
-                    : 'bg-card/40 text-muted-foreground hover:bg-muted/40 hover:text-foreground'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+      )}
+
+      {/* Search and Filters Bar */}
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="text-muted-foreground absolute left-3 top-2.5 size-4" />
+            <Input
+              placeholder="Search by ticket or subject..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-card/40 border-glass-border h-9 pl-9 text-xs"
+            />
           </div>
 
-          {/* Complaints Feed List */}
-          {filteredComplaints.length === 0 ? (
-            <Card variant="glass" className="border-glass-border space-y-3 border p-12 text-center">
-              <Scale className="text-muted-foreground/40 mx-auto size-10" />
-              <div className="space-y-1">
-                <h3 className="font-heading text-foreground text-base font-bold">
-                  No Complaints in this view
-                </h3>
-                <p className="text-muted-foreground mx-auto max-w-sm text-xs">
-                  You have no petitions matching the selected filter. Have an academic or campus
-                  issue? File a signed petition.
-                </p>
-              </div>
-              <Button
-                variant="pill-primary"
-                size="sm"
-                onClick={() => setIsComposing(true)}
-                className="gap-1 text-xs"
+          <div className="flex items-center gap-2">
+            <Filter className="text-muted-foreground size-3.5" />
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value as 'all' | ComplaintCategory)}
+              className="bg-card/60 border-glass-border text-foreground rounded-lg border px-2.5 py-1 text-xs"
+            >
+              <option value="all">All Categories</option>
+              <option value="academic">Academic &amp; Evaluation</option>
+              <option value="lab_infrastructure">Lab &amp; Infrastructure</option>
+              <option value="hostel">Hostel &amp; Residential</option>
+              <option value="harassment">Harassment / Anti-Ragging</option>
+              <option value="fee_accounts">Fee &amp; Accounts</option>
+              <option value="administrative">Administrative</option>
+              <option value="examination">Examination</option>
+              <option value="other">Other</option>
+            </select>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={refreshComplaints}
+              disabled={isLoading}
+              className="h-8 text-xs"
+            >
+              {isLoading ? <LoadingSpinner size="xs" /> : 'Refresh'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Status Filter Pills */}
+        <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+          {(
+            [
+              ['all', 'All Petitions'],
+              ['submitted', 'Submitted'],
+              ['under_review', 'Under Review'],
+              ['in_progress', 'In Progress'],
+              ['responded', 'Responded'],
+              ['resolved', 'Resolved'],
+              ['closed', 'Closed'],
+              ['escalated', 'Escalated'],
+              ['reopened', 'Reopened'],
+            ] as const
+          ).map(([statusKey, label]) => (
+            <button
+              key={statusKey}
+              type="button"
+              onClick={() => setActiveFilter(statusKey)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                activeFilter === statusKey
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'bg-card/40 border-glass-border text-muted-foreground hover:bg-muted/40 hover:text-foreground border'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Complaints Feed */}
+      {isLoading && complaints.length === 0 ? (
+        <div className="py-12 flex justify-center">
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : filteredComplaints.length === 0 ? (
+        <EmptyState
+          icon={<Inbox className="size-6 text-primary" />}
+          title="No Grievance Petitions Found"
+          description={
+            searchQuery || activeFilter !== 'all' || selectedCategory !== 'all'
+              ? 'No complaints match your active filter criteria.'
+              : 'You have not submitted any grievance petitions. Use the button above to lodge an official petition.'
+          }
+          action={
+            !isComposing
+              ? {
+                  label: 'Lodge New Petition',
+                  onClick: () => setIsComposing(true),
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <div className="space-y-3">
+          {filteredComplaints.map((complaint) => {
+            const isBreached = complaint.sla?.isBreached || (complaint.slaRemainingHours !== undefined && complaint.slaRemainingHours <= 0);
+            return (
+              <Card
+                key={complaint.id}
+                variant="glass"
+                onClick={() => setSelectedComplaint(complaint)}
+                className="hover:border-primary/50 group cursor-pointer p-4 transition-all hover:shadow-md"
               >
-                <Plus className="size-3.5" />
-                Compose Complaint
-              </Button>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {filteredComplaints.map((c) => (
-                <Card
-                  key={c.id}
-                  variant="glass"
-                  className="border-glass-border hover:border-glass-border-hover space-y-3 border p-4 transition-all duration-200 hover:-translate-y-0.5 sm:p-5"
-                >
-                  <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div className="space-y-1.5 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-foreground font-mono text-xs font-semibold">
-                        {c.ticketNumber}
+                      <span className="font-mono text-xs font-bold text-foreground">
+                        {complaint.ticketNumber}
                       </span>
-                      {getStatusBadge(c.status)}
+                      {getStatusBadge(complaint.status)}
                       <Badge variant="glass" className="text-[10px] capitalize">
-                        {c.category.replace('_', ' ')}
+                        {complaint.category.replace('_', ' ')}
                       </Badge>
-                      <span className="text-muted-foreground font-mono text-[11px]">
-                        {c.submittedAt}
-                      </span>
+                      {complaint.recipientRole === 'director' ? (
+                        <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
+                          <Landmark className="size-3 text-indigo-500" />
+                          Directorate Appeal
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
+                          <Scale className="text-primary size-3" />
+                          Department HOD
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 font-mono text-xs text-amber-500">
-                      <Clock className="size-3.5" />
-                      <span>{c.slaRemainingHours}h SLA Left</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <h3 className="font-heading text-foreground text-sm font-bold sm:text-base">
-                      {c.subject}
+                    <h3 className="font-heading text-foreground group-hover:text-primary text-sm font-semibold transition-colors">
+                      {complaint.subject}
                     </h3>
-                    <p className="text-muted-foreground line-clamp-2 text-xs leading-relaxed">
-                      {c.narrative}
+
+                    <p className="text-muted-foreground line-clamp-1 text-xs">
+                      {complaint.description || complaint.narrative}
                     </p>
                   </div>
 
-                  <div className="border-border/30 flex flex-col justify-between gap-2 border-t pt-2 text-xs sm:flex-row sm:items-center">
-                    <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
-                      <span>Addressed to:</span>
-                      <span className="text-foreground flex items-center gap-1 font-semibold">
-                        {c.recipientRole === 'director' ? (
-                          <Landmark className="size-3 text-indigo-500" />
-                        ) : (
-                          <Scale className="text-primary size-3" />
-                        )}
-                        {c.recipientName}
-                      </span>
+                  <div className="flex items-center justify-between gap-4 shrink-0 sm:flex-col sm:items-end">
+                    <div className="flex items-center gap-1.5 font-mono text-xs">
+                      {isBreached ? (
+                        <div className="flex items-center gap-1 text-rose-500 font-semibold">
+                          <AlertTriangle className="size-3.5" />
+                          <span>SLA Breached</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-amber-500">
+                          <Clock className="size-3.5" />
+                          <span>{complaint.slaRemainingHours}h Left</span>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="flex items-center justify-end gap-2">
-                      {c.responses.length > 0 && (
-                        <span className="text-[11px] font-medium text-emerald-500">
-                          {c.responses.length} Official Response{c.responses.length > 1 ? 's' : ''}
-                        </span>
-                      )}
-
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedComplaint(c)}
-                        className="text-primary h-7 gap-1 px-2.5 text-xs"
-                      >
-                        View Docket
-                        <ChevronRight className="size-3" />
-                      </Button>
+                    <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground text-xs">
+                      <span>{complaint.responses.length} responses</span>
+                      <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                     </div>
                   </div>
-                </Card>
-              ))}
-            </div>
-          )}
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {/* Docket Detail Modal */}
+      {/* Complaint Detail Modal */}
       <ComplaintDetailModal
         complaint={selectedComplaint}
         isOpen={Boolean(selectedComplaint)}
         onClose={() => setSelectedComplaint(null)}
         currentUserRole="student"
+        currentUserId={user.id}
+        onComplaintUpdated={handleComplaintUpdated}
       />
     </div>
   );
