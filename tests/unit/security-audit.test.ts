@@ -148,7 +148,7 @@ describe('Phase 3.8 Security Audit & Vulnerability Assessment', () => {
         logger.info('Audit event test', {
           password: 'SuperSecretPassword123!',
           token: 'clerk_session_jwt_token_sample',
-          authSecret: 'whsec_secret_sample',
+          authSecret: 'mock_webhook_secret_sample',
           safeField: 'visible_data',
         });
       } finally {

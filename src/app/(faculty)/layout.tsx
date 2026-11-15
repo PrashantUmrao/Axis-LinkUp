@@ -2,6 +2,7 @@ import React from 'react';
 import { redirect } from 'next/navigation';
 import { getCurrentSession } from '@/lib/auth';
 import { AppShell } from '@/components/layouts';
+import { getRoleDashboard } from '@/lib/auth/routing';
 
 export default async function FacultyLayout({
   children,
@@ -24,7 +25,7 @@ export default async function FacultyLayout({
   }
 
   if (session.role !== 'faculty' && session.role !== 'super_admin') {
-    redirect('/unauthorized');
+    redirect(getRoleDashboard(session.role, session.adminSubRole));
   }
 
   return <AppShell user={session}>{children}</AppShell>;

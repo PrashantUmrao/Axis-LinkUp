@@ -6,6 +6,7 @@ export * from './class-roster';
 export * from './assignment-management';
 export * from './student-overview';
 export * from './notice-section';
+export * from './poll-section';
 export * from './academic-calendar';
 export * from './quick-actions';
 export * from './recent-activity';

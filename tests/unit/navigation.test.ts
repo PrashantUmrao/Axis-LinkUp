@@ -32,6 +32,12 @@ describe('Global Application Layout & Role-Based Navigation', () => {
     '/student/complaints',
     '/faculty/complaints',
     '/admin/complaints',
+    '/student/notices',
+    '/student/polls',
+    '/faculty/notices',
+    '/faculty/polls',
+    '/admin/notices',
+    '/admin/polls',
   ]);
 
   describe('1. Institutional Portal Metadata', () => {

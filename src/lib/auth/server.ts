@@ -15,13 +15,27 @@ import {
   assertDepartmentScope,
 } from './rbac';
 import type { Permission, ResourceContext } from './permissions';
-import type { UserRole, UserSession, UserStatus } from '@/types/user';
+import type { UserRole, UserSession, UserStatus, AdminSubRole } from '@/types/user';
+
+let __testSessionOverride: UserSession | null | undefined = undefined;
+
+/**
+ * Test helper to override current user session in automated test environments.
+ * Set to undefined in afterEach/cleanup to restore default Clerk behavior.
+ */
+export function __setTestSession(session: UserSession | null | undefined): void {
+  __testSessionOverride = session;
+}
 
 /**
  * Resolves the currently authenticated user session.
  * Returns null if the request is unauthenticated or user record does not exist.
  */
 export async function getCurrentSession(): Promise<UserSession | null> {
+  if (__testSessionOverride !== undefined) {
+    return __testSessionOverride;
+  }
+
   const { userId, sessionId, sessionClaims } = await auth();
   if (!userId) {
     return null;
@@ -36,6 +50,7 @@ export async function getCurrentSession(): Promise<UserSession | null> {
     const metadata =
       (sessionClaims?.publicMetadata as {
         role?: UserRole;
+        adminSubRole?: AdminSubRole;
         status?: UserStatus;
         departmentId?: string;
       }) ?? {};
@@ -45,10 +60,12 @@ export async function getCurrentSession(): Promise<UserSession | null> {
       sessionId: sessionId ?? undefined,
       authProviderId: userId,
       email: (sessionClaims?.email as string) || '',
+      username: (sessionClaims?.username as string) || undefined,
       fullName: (sessionClaims?.fullName as string) || (sessionClaims?.name as string) || undefined,
       avatarUrl:
         (sessionClaims?.picture as string) || (sessionClaims?.imageUrl as string) || undefined,
       role: metadata.role || 'student',
+      adminSubRole: metadata.adminSubRole,
       status: metadata.status || 'active',
       departmentId: metadata.departmentId,
     };
@@ -59,9 +76,11 @@ export async function getCurrentSession(): Promise<UserSession | null> {
     sessionId: sessionId ?? undefined,
     authProviderId: user.authProviderId,
     email: user.email,
+    username: user.username ?? undefined,
     fullName: user.fullName,
     avatarUrl: user.avatarUrl ?? undefined,
     role: user.role,
+    adminSubRole: user.adminSubRole ?? undefined,
     status: user.status,
     departmentId: user.departmentId ? user.departmentId.toString() : undefined,
   };

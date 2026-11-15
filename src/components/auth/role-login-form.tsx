@@ -9,13 +9,14 @@
 import React from 'react';
 import Link from 'next/link';
 import { SignIn } from '@clerk/nextjs';
-import { GraduationCap, BookOpenCheck, ShieldCheck, ArrowLeft, Lock } from 'lucide-react';
+import { GraduationCap, BookOpenCheck, ShieldCheck, ArrowLeft, Lock, KeyRound } from 'lucide-react';
 import type { PortalType } from './role-selector';
 
 interface RoleLoginFormProps {
   portal: PortalType;
   onChangePortal: () => void;
   redirectUrl?: string;
+  errorMessage?: string;
 }
 
 const PORTAL_META = {
@@ -42,11 +43,19 @@ const PORTAL_META = {
   },
 };
 
-export function RoleLoginForm({ portal, onChangePortal, redirectUrl }: RoleLoginFormProps) {
+export function RoleLoginForm({
+  portal,
+  onChangePortal,
+  redirectUrl,
+  errorMessage,
+}: RoleLoginFormProps) {
   const meta = PORTAL_META[portal] ?? PORTAL_META.student;
   const Icon = meta.icon;
 
-  const targetDashboard = redirectUrl || meta.targetDashboard;
+  // Authoritative post-auth routing through server-side role verification gate
+  const verifyTarget = `/auth/verify-role?portal=${encodeURIComponent(portal)}${
+    redirectUrl ? `&redirect_url=${encodeURIComponent(redirectUrl)}` : ''
+  }`;
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6">
@@ -83,14 +92,22 @@ export function RoleLoginForm({ portal, onChangePortal, redirectUrl }: RoleLogin
           </span>
         </div>
 
+        {/* Role Mismatch or Authentication Notice */}
+        {errorMessage && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            <p className="font-semibold">Access Restriction</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed">{errorMessage}</p>
+          </div>
+        )}
+
         {/* Clerk Sign-In Component with Glassmorphism Theme Styling */}
         <div className="w-full">
           <SignIn
             routing="path"
             path="/sign-in"
             signUpUrl={undefined}
-            fallbackRedirectUrl={targetDashboard}
-            forceRedirectUrl={targetDashboard}
+            fallbackRedirectUrl={verifyTarget}
+            forceRedirectUrl={verifyTarget}
             appearance={{
               elements: {
                 rootBox: 'w-full',
@@ -120,6 +137,17 @@ export function RoleLoginForm({ portal, onChangePortal, redirectUrl }: RoleLogin
               },
             }}
           />
+        </div>
+
+        {/* Forgot Password Link */}
+        <div className="border-border/40 border-t pt-3 text-center">
+          <Link
+            href={`/forgot-password?portal=${portal}`}
+            className="text-primary hover:text-primary/80 inline-flex items-center gap-1.5 text-xs font-medium hover:underline transition-colors"
+          >
+            <KeyRound className="size-3.5" />
+            <span>Forgot institutional password?</span>
+          </Link>
         </div>
 
         {/* Zero-Trust Administrative Security Notice */}

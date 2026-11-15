@@ -4,13 +4,25 @@ import Link from 'next/link';
 import { SignOutButton } from '@clerk/nextjs';
 import { ShieldAlert, ArrowLeft, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { getCurrentSession } from '@/lib/auth';
+import { getRoleDashboard } from '@/lib/auth/routing';
 
 export const metadata: Metadata = {
   title: 'Access Restricted | Axis LinkUp',
   description: 'You do not have permission to access the requested resource.',
 };
 
-export default function UnauthorizedPage() {
+export default async function UnauthorizedPage() {
+  const session = await getCurrentSession();
+  const dashboardHref =
+    session && session.status === 'active'
+      ? getRoleDashboard(session.role, session.adminSubRole)
+      : '/';
+  const dashboardLabel =
+    session && session.status === 'active'
+      ? 'Return to Authorized Dashboard'
+      : 'Return to Campus Home';
+
   return (
     <div className="glass-card border-border/40 flex flex-col items-center justify-center space-y-5 p-6 text-center shadow-xl sm:p-8">
       {/* Visual Indicator */}
@@ -56,9 +68,9 @@ export default function UnauthorizedPage() {
       {/* Ingress Actions */}
       <div className="flex w-full flex-col gap-2.5 pt-2">
         <Button asChild variant="glass-primary" className="w-full text-xs">
-          <Link href="/">
+          <Link href={dashboardHref}>
             <ArrowLeft className="mr-2 size-4" />
-            Return to Authorized Dashboard
+            {dashboardLabel}
           </Link>
         </Button>
 

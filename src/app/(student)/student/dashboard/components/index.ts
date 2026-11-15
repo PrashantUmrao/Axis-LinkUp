@@ -4,6 +4,7 @@ export * from './course-modules';
 export * from './assignment-overview';
 export * from './grievance-portal-card';
 export * from './notice-feed';
+export * from './poll-section';
 export * from './academic-calendar';
 export * from './faculty-mentors';
 export * from './quick-actions';

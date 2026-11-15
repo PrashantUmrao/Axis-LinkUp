@@ -70,6 +70,31 @@ export type SearchQueryParams = z.infer<typeof searchQuerySchema>;
 export const emailSchema = z.string().trim().email('Invalid email address format').toLowerCase();
 
 /**
+ * Validates institutional usernames (normalized to lowercase).
+ * Rules:
+ * - Trims whitespace
+ * - Normalizes to lowercase
+ * - Length: 3 to 30 characters
+ * - Characters: lowercase letters, numbers, underscores, hyphens, and periods
+ * - Must begin and end with an alphanumeric character
+ */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'Username must be at least 3 characters')
+  .max(30, 'Username cannot exceed 30 characters')
+  .regex(
+    /^[a-z0-9][a-z0-9_.-]{1,28}[a-z0-9]$/,
+    'Username must begin and end with an alphanumeric character and may only contain lowercase letters, numbers, hyphens, underscores, and periods'
+  );
+
+/**
+ * Validates institutional administrative sub-roles.
+ */
+export const adminSubRoleSchema = z.enum(['sys_admin', 'hod', 'director']);
+
+/**
  * Validates Axis Institute student roll number format (e.g., "22BCSE101", "23BECE045").
  */
 export const studentRollNumberSchema = z

@@ -166,10 +166,20 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'Bell',
     roles: ['student'],
     permission: PERMISSIONS.NOTICES_READ,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Official collegiate bulletins and department circulars.',
+  },
+  {
+    id: 'student-polls',
+    title: 'Campus Polls',
+    href: '/student/polls',
+    iconName: 'BarChart3',
+    roles: ['student'],
+    permission: PERMISSIONS.POLLS_VOTE,
+    disabled: false,
+    category: 'modules',
+    description: 'Active campus surveys and student feedback voting.',
   },
   {
     id: 'student-assignments',
@@ -226,8 +236,7 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'Megaphone',
     roles: ['faculty'],
     permission: PERMISSIONS.NOTICES_PUBLISH_COURSE,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Broadcast course-specific announcements to enrolled batches.',
   },
@@ -250,8 +259,7 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'BarChart3',
     roles: ['faculty'],
     permission: PERMISSIONS.POLLS_CREATE_COURSE,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Instant student feedback and interactive classroom voting.',
   },
@@ -274,10 +282,20 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'Megaphone',
     roles: ['admin', 'super_admin'],
     permission: PERMISSIONS.NOTICES_PUBLISH_COLLEGE,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Institution-wide official notices and emergency circulars.',
+  },
+  {
+    id: 'admin-polls',
+    title: 'Campus Polls',
+    href: '/admin/polls',
+    iconName: 'BarChart3',
+    roles: ['admin', 'super_admin'],
+    permission: PERMISSIONS.POLLS_CREATE_COURSE,
+    disabled: false,
+    category: 'modules',
+    description: 'Campus-wide opinion surveys, student sentiment, and collegiate voting.',
   },
   {
     id: 'admin-requests',
@@ -395,6 +413,8 @@ export function getBreadcrumbsForPath(
     breadcrumbs.push({ label: 'Profile & Settings' });
   } else if (pathname.includes('/notices')) {
     breadcrumbs.push({ label: 'Campus Notices' });
+  } else if (pathname.includes('/polls')) {
+    breadcrumbs.push({ label: 'Campus Polls' });
   } else if (pathname.includes('/assignments')) {
     breadcrumbs.push({ label: 'Assignments' });
   } else if (pathname.includes('/calendar')) {

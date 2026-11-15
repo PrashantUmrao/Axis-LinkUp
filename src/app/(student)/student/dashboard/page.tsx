@@ -11,6 +11,7 @@ import {
   StudentAssignmentOverview,
   StudentGrievancePortalCard,
   StudentNoticeFeed,
+  StudentPollSection,
   StudentAcademicCalendar,
   StudentFacultyMentors,
   StudentQuickActions,
@@ -96,6 +97,9 @@ export default async function StudentDashboardPage() {
 
           {/* College Notices Section */}
           <StudentNoticeFeed />
+
+          {/* Interactive Campus Polls & Sentiment Section */}
+          <StudentPollSection />
 
           {/* Quick Actions Area */}
           <StudentQuickActions />

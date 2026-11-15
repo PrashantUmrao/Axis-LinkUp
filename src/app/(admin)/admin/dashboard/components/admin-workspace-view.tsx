@@ -30,6 +30,7 @@ type AdminScope = 'sys_admin' | 'hod' | 'director';
 
 export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
   const [activeScope, setActiveScope] = useState<AdminScope>('sys_admin');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   return (
     <div className="space-y-6">
@@ -88,19 +89,21 @@ export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
       {activeScope === 'sys_admin' && (
         <div className="space-y-6">
           {/* Closed Account Provisioning Desk (Mandatory Phase 4.8.2) */}
-          <AdminProvisioningCard />
+          <AdminProvisioningCard
+            onUserProvisioned={() => setRefreshKey((prev) => prev + 1)}
+          />
 
           {/* User Management & Provisioning Directory */}
-          <AdminUserManagement counts={counts} />
+          <AdminUserManagement key={refreshKey} counts={counts} />
 
           {/* Student Service Requisition Queues */}
           <AdminRequestTracking />
 
           {/* Department Notices & Circulars Desk */}
-          <AdminNoticeManagement />
+          <AdminNoticeManagement activeScope={activeScope} />
 
           {/* Campus Polls & Student Feedback */}
-          <AdminPollManagement />
+          <AdminPollManagement activeScope={activeScope} />
 
           {/* Quick Actions Shortcuts */}
           <AdminQuickActions />
@@ -116,10 +119,10 @@ export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
           <AdminRequestTracking />
 
           {/* Department Notices & Circulars Desk */}
-          <AdminNoticeManagement />
+          <AdminNoticeManagement activeScope={activeScope} />
 
           {/* Campus Polls & Student Feedback */}
-          <AdminPollManagement />
+          <AdminPollManagement activeScope={activeScope} />
 
           {/* User Directory for Department */}
           <AdminUserManagement counts={counts} />
@@ -135,7 +138,10 @@ export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
           <HodGrievanceDesk />
 
           {/* Department Notices & Circulars Desk */}
-          <AdminNoticeManagement />
+          <AdminNoticeManagement activeScope={activeScope} />
+
+          {/* Campus Polls & Student Feedback */}
+          <AdminPollManagement activeScope={activeScope} />
 
           {/* User Management Directory */}
           <AdminUserManagement counts={counts} />

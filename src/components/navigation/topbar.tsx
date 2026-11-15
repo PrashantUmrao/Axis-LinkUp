@@ -14,9 +14,10 @@ import { cn } from '@/lib/utils';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui';
 import { ThemeToggle } from '@/components/theme';
 import { UserProfileMenu } from './user-menu';
+import { TopbarNotifications } from './topbar-notifications';
 import { getBreadcrumbsForPath } from '@/config/navigation';
 import type { UserRole } from '@/types/user';
-import { Menu, PanelLeftClose, PanelLeft, Search, Bell, ChevronRight } from 'lucide-react';
+import { Menu, PanelLeftClose, PanelLeft, Search, ChevronRight } from 'lucide-react';
 
 interface TopbarProps {
   user: {
@@ -135,27 +136,8 @@ export function Topbar({
           </TooltipContent>
         </Tooltip>
 
-        {/* Non-functional Notifications Trigger Placeholder */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground relative size-9 cursor-not-allowed rounded-lg opacity-80"
-              aria-label="View notifications (Coming soon)"
-              aria-disabled="true"
-            >
-              <Bell className="size-4" />
-              <span className="bg-primary/40 ring-background absolute top-2 right-2 size-2 rounded-full ring-2" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            <p className="font-semibold">Notification Center</p>
-            <p className="text-muted-foreground text-[10px]">
-              Notification delivery is planned for Phase 5 implementation.
-            </p>
-          </TooltipContent>
-        </Tooltip>
+        {/* Real-time Campus Notices & Notifications */}
+        <TopbarNotifications user={user} />
 
         {/* Theme Switcher */}
         <ThemeToggle variant="icon-button" />

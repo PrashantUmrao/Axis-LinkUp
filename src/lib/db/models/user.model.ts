@@ -21,12 +21,24 @@ const StudentProfileSchema = new Schema<IStudentProfile>(
     enrollmentNumber: {
       type: String,
       trim: true,
+    },
+    program: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 30,
       default: null,
     },
     batchYear: {
       type: Number,
       min: 2020,
       max: 2035,
+    },
+    admissionYear: {
+      type: Number,
+      min: 2018,
+      max: 2035,
+      default: null,
     },
     currentSemester: {
       type: Number,
@@ -72,6 +84,10 @@ const FacultyProfileSchema = new Schema<IFacultyProfile>(
       type: [String],
       default: [],
     },
+    specialization: {
+      type: [String],
+      default: [],
+    },
     cabinRoom: {
       type: String,
       trim: true,
@@ -89,6 +105,10 @@ const FacultyProfileSchema = new Schema<IFacultyProfile>(
       end: { type: String, default: '12:00' },
       isAcceptingDMs: { type: Boolean, default: true },
     },
+    sharePhoneWithStudents: {
+      type: Boolean,
+      default: false,
+    },
   },
   { _id: false }
 );
@@ -102,6 +122,12 @@ const AdminProfileSchema = new Schema<IAdminProfile>(
       type: String,
       trim: true,
       uppercase: true,
+    },
+    designation: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: null,
     },
     administrativeDomain: {
       type: String,
@@ -133,13 +159,24 @@ const UserSchema = new Schema<IUser>(
     email: {
       type: String,
       required: [true, 'Email is required'],
-      unique: true,
       lowercase: true,
       trim: true,
       match: [
         /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/,
         'Please provide a valid email address',
       ],
+    },
+    username: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      minlength: [3, 'Username must be at least 3 characters'],
+      maxlength: [30, 'Username cannot exceed 30 characters'],
+      match: [
+        /^[a-z0-9][a-z0-9_.-]{1,28}[a-z0-9]$/,
+        'Username must begin and end with an alphanumeric character and may only contain lowercase letters, numbers, hyphens, underscores, and periods',
+      ],
+      default: null,
     },
     fullName: {
       type: String,
@@ -156,6 +193,14 @@ const UserSchema = new Schema<IUser>(
         message: 'Invalid role: {VALUE}',
       },
     },
+    adminSubRole: {
+      type: String,
+      enum: {
+        values: ['sys_admin', 'hod', 'director', null],
+        message: 'Invalid administrative sub-role: {VALUE}',
+      },
+      default: null,
+    },
     status: {
       type: String,
       required: true,
@@ -170,6 +215,10 @@ const UserSchema = new Schema<IUser>(
       ],
       default: 'pending_verification',
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     isProfileComplete: {
       type: Boolean,
       default: false,
@@ -177,6 +226,23 @@ const UserSchema = new Schema<IUser>(
     departmentId: {
       type: Schema.Types.ObjectId,
       ref: 'Department',
+      default: null,
+    },
+    provisionedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    activatedAt: {
+      type: Date,
+      default: null,
+    },
+    activationTokenHash: {
+      type: String,
+      default: null,
+    },
+    activationTokenExpiresAt: {
+      type: Date,
       default: null,
     },
     phoneNumber: {
@@ -187,6 +253,12 @@ const UserSchema = new Schema<IUser>(
     avatarUrl: {
       type: String,
       trim: true,
+      default: null,
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: 500,
       default: null,
     },
     studentProfile: {
@@ -216,13 +288,27 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-// Indexes adhering strictly to DOC-DATA-007
+// Indexes adhering strictly to DOC-DATA-007 and Phase 5.2.1 Specifications
 UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ username: 1 }, { unique: true, sparse: true });
 UserSchema.index({ authProviderId: 1 }, { unique: true, sparse: true });
 UserSchema.index({ 'studentProfile.rollNumber': 1 }, { unique: true, sparse: true });
+UserSchema.index(
+  { 'studentProfile.enrollmentNumber': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'studentProfile.enrollmentNumber': { $type: 'string', $gt: '' },
+    },
+  }
+);
+UserSchema.index({ 'studentProfile.program': 1, 'studentProfile.batchYear': 1 });
 UserSchema.index({ 'facultyProfile.employeeId': 1 }, { unique: true, sparse: true });
+UserSchema.index({ 'facultyProfile.sharePhoneWithStudents': 1 });
 UserSchema.index({ 'adminProfile.adminStaffId': 1 }, { unique: true, sparse: true });
+UserSchema.index({ activationTokenHash: 1 }, { sparse: true });
 UserSchema.index({ departmentId: 1, role: 1, status: 1 });
+UserSchema.index({ role: 1, adminSubRole: 1, status: 1 });
 UserSchema.index({ 'studentProfile.batchYear': 1, departmentId: 1, 'studentProfile.section': 1 });
 UserSchema.index({ status: 1 });
 
@@ -238,7 +324,9 @@ export function toUserDTO(user: IUser): UserDTO {
     studentProfile = {
       rollNumber: user.studentProfile.rollNumber,
       enrollmentNumber: user.studentProfile.enrollmentNumber,
+      program: user.studentProfile.program || undefined,
       batchYear: user.studentProfile.batchYear,
+      admissionYear: user.studentProfile.admissionYear ?? user.studentProfile.batchYear,
       currentSemester: user.studentProfile.currentSemester,
       section: user.studentProfile.section,
       academicMentorId: user.studentProfile.academicMentorId
@@ -256,6 +344,9 @@ export function toUserDTO(user: IUser): UserDTO {
       qualifications: user.facultyProfile.qualifications
         ? [...user.facultyProfile.qualifications]
         : [],
+      specialization: user.facultyProfile.specialization
+        ? [...user.facultyProfile.specialization]
+        : [],
       cabinRoom: user.facultyProfile.cabinRoom,
       assignedCourses: user.facultyProfile.assignedCourses
         ? user.facultyProfile.assignedCourses.map((courseId) => String(courseId))
@@ -267,6 +358,7 @@ export function toUserDTO(user: IUser): UserDTO {
             isAcceptingDMs: user.facultyProfile.officeHours.isAcceptingDMs,
           }
         : undefined,
+      sharePhoneWithStudents: Boolean(user.facultyProfile.sharePhoneWithStudents),
     };
   }
 
@@ -274,6 +366,7 @@ export function toUserDTO(user: IUser): UserDTO {
   if (user.adminProfile) {
     adminProfile = {
       adminStaffId: user.adminProfile.adminStaffId,
+      designation: user.adminProfile.designation || undefined,
       administrativeDomain: user.adminProfile.administrativeDomain,
       assignedQueueScopes: user.adminProfile.assignedQueueScopes
         ? [...user.adminProfile.assignedQueueScopes]
@@ -285,13 +378,19 @@ export function toUserDTO(user: IUser): UserDTO {
   return {
     id: user._id.toString(),
     email: user.email,
+    username: user.username ?? null,
     fullName: user.fullName,
     role: user.role,
+    adminSubRole: user.adminSubRole ?? null,
     status: user.status,
+    isEmailVerified: Boolean(user.isEmailVerified),
     isProfileComplete: user.isProfileComplete,
     departmentId: user.departmentId ? user.departmentId.toString() : null,
+    provisionedBy: user.provisionedBy ? user.provisionedBy.toString() : null,
+    activatedAt: user.activatedAt ? user.activatedAt.toISOString() : null,
     phoneNumber: user.phoneNumber ?? null,
     avatarUrl: user.avatarUrl ?? null,
+    bio: user.bio ?? null,
     studentProfile,
     facultyProfile,
     adminProfile,

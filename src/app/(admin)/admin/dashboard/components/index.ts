@@ -1,6 +1,7 @@
 export * from './welcome-banner';
 export * from './metrics-overview';
 export * from './admin-provisioning-card';
+export * from './admin-bulk-provisioning';
 export * from './hod-grievance-desk';
 export * from './director-appeal-desk';
 export * from './admin-workspace-view';

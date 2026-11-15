@@ -12,7 +12,8 @@ import {
   ForbiddenError,
   ValidationError,
 } from '@/lib/errors/app-error';
-import type { UserDTO, UserSession, UserRole, UserStatus } from '@/types/user';
+import { assertCanManageUserRoles } from '@/lib/auth/rbac';
+import type { UserDTO, UserSession, UserRole, UserStatus, AdminSubRole } from '@/types/user';
 
 export class UserService {
   /**
@@ -28,6 +29,22 @@ export class UserService {
    */
   public static async getUserByEmail(email: string): Promise<UserDTO | null> {
     const user = await UserRepository.findByEmail(email);
+    return user ? toUserDTO(user) : null;
+  }
+
+  /**
+   * Retrieves a user profile by institutional username.
+   */
+  public static async getUserByUsername(username: string): Promise<UserDTO | null> {
+    const user = await UserRepository.findByUsername(username);
+    return user ? toUserDTO(user) : null;
+  }
+
+  /**
+   * Retrieves a user profile by identifier (either email or institutional username).
+   */
+  public static async getUserByIdentifier(identifier: string): Promise<UserDTO | null> {
+    const user = await UserRepository.findByIdentifier(identifier);
     return user ? toUserDTO(user) : null;
   }
 
@@ -51,7 +68,15 @@ export class UserService {
       throw new ConflictError(`A user with email "${validated.email}" already exists.`);
     }
 
-    // 2. Assert student roll number uniqueness if present
+    // 2. Assert username uniqueness if present
+    if (validated.username) {
+      const existingUsername = await UserRepository.findByUsername(validated.username);
+      if (existingUsername) {
+        throw new ConflictError(`A user with username "${validated.username}" already exists.`);
+      }
+    }
+
+    // 3. Assert student roll number uniqueness if present
     if (validated.studentProfile?.rollNumber) {
       const existingRoll = await UserRepository.findByRollNumber(
         validated.studentProfile.rollNumber
@@ -127,10 +152,11 @@ export class UserService {
     newRole: UserRole,
     callerSession: UserSession
   ): Promise<UserDTO> {
-    // 1. Enforce Super Admin authority
-    if (callerSession.role !== 'super_admin') {
-      throw new ForbiddenError('Only Super Administrators are authorized to modify user roles.');
-    }
+    // 1. Enforce System Administrator authority (DOC-REQ-003-REV2)
+    assertCanManageUserRoles(
+      callerSession,
+      'Only Super Administrators or System Administrators are authorized to modify user roles.'
+    );
 
     // 2. Prevent self-demotion lockout
     if (callerSession.userId === targetUserId && newRole !== 'super_admin') {
@@ -163,6 +189,28 @@ export class UserService {
     }
 
     const updated = await UserRepository.updateStatus(targetUserId, newStatus);
+    if (!updated) {
+      throw new NotFoundError('User', targetUserId);
+    }
+
+    return toUserDTO(updated);
+  }
+
+  /**
+   * Mutates administrative sub-role (Protected Super Admin Gate).
+   */
+  public static async updateAdminSubRole(
+    targetUserId: string,
+    adminSubRole: AdminSubRole | null,
+    callerSession: UserSession
+  ): Promise<UserDTO> {
+    // 1. Enforce System Administrator authority (DOC-REQ-003-REV2)
+    assertCanManageUserRoles(
+      callerSession,
+      'Only Super Administrators or System Administrators are authorized to modify administrative sub-roles.'
+    );
+
+    const updated = await UserRepository.updateAdminSubRole(targetUserId, adminSubRole);
     if (!updated) {
       throw new NotFoundError('User', targetUserId);
     }

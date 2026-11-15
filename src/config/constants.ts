@@ -18,6 +18,7 @@ export const HTTP_STATUS = {
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
   CONFLICT: 409,
+  GONE: 410,
   UNPROCESSABLE_ENTITY: 422,
   TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
@@ -78,6 +79,24 @@ export const USER_ROLES: readonly UserRole[] = [
   'admin',
   'super_admin',
 ] as const;
+
+/**
+ * Approved Administrative Sub-Roles in Axis LinkUp (Phase 4.8.2 / Phase 5).
+ */
+export const ADMIN_SUB_ROLES = ['sys_admin', 'hod', 'director'] as const;
+export type AdminSubRole = (typeof ADMIN_SUB_ROLES)[number];
+
+/**
+ * Standardized Faculty Designations in Axis LinkUp (Phase 5.3.2).
+ */
+export const FACULTY_DESIGNATIONS = [
+  'Professor',
+  'Associate Professor',
+  'Assistant Professor',
+  'Lab Instructor',
+  'Visiting Faculty',
+] as const;
+export type FacultyDesignation = (typeof FACULTY_DESIGNATIONS)[number];
 
 /**
  * Standard Institutional Department Codes (Axis Institute).

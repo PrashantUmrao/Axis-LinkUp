@@ -6,8 +6,9 @@
 
 import type { Types, Document } from 'mongoose';
 import type { UserRole, Nullable, Optional } from './common';
+import type { AdminSubRole, FacultyDesignation } from '@/config/constants';
 
-export type { UserRole };
+export type { UserRole, AdminSubRole, FacultyDesignation };
 
 /**
  * Account lifecycle statuses.
@@ -27,7 +28,9 @@ export type UserStatus =
 export interface IStudentProfile {
   rollNumber: string;
   enrollmentNumber?: string;
+  program?: string;
   batchYear: number;
+  admissionYear?: number;
   currentSemester: number;
   section: string;
   academicMentorId?: Types.ObjectId | string;
@@ -48,11 +51,13 @@ export interface IFacultyOfficeHours {
  */
 export interface IFacultyProfile {
   employeeId: string;
-  designation: string;
+  designation: FacultyDesignation | string;
   qualifications: string[];
+  specialization?: string[];
   cabinRoom?: string;
   assignedCourses: Array<Types.ObjectId | string>;
   officeHours?: IFacultyOfficeHours;
+  sharePhoneWithStudents?: boolean;
 }
 
 /**
@@ -60,6 +65,7 @@ export interface IFacultyProfile {
  */
 export interface IAdminProfile {
   adminStaffId: string;
+  designation?: string;
   administrativeDomain: string;
   assignedQueueScopes: string[];
   emergencyOverridePermitted: boolean;
@@ -72,13 +78,21 @@ export interface IUser extends Document {
   _id: Types.ObjectId;
   authProviderId?: string;
   email: string;
+  username?: Nullable<string>;
   fullName: string;
   role: UserRole;
+  adminSubRole?: Nullable<AdminSubRole>;
   status: UserStatus;
+  isEmailVerified?: boolean;
   isProfileComplete: boolean;
   departmentId?: Nullable<Types.ObjectId>;
+  provisionedBy?: Nullable<Types.ObjectId>;
+  activatedAt?: Nullable<Date>;
+  activationTokenHash?: Nullable<string>;
+  activationTokenExpiresAt?: Nullable<Date>;
   phoneNumber?: Nullable<string>;
   avatarUrl?: Nullable<string>;
+  bio?: Nullable<string>;
   studentProfile?: Nullable<IStudentProfile>;
   facultyProfile?: Nullable<IFacultyProfile>;
   adminProfile?: Nullable<IAdminProfile>;
@@ -92,13 +106,19 @@ export interface IUser extends Document {
 export interface UserDTO {
   id: string;
   email: string;
+  username?: Nullable<string>;
   fullName: string;
   role: UserRole;
+  adminSubRole?: Nullable<AdminSubRole>;
   status: UserStatus;
+  isEmailVerified?: boolean;
   isProfileComplete: boolean;
   departmentId?: Nullable<string>;
+  provisionedBy?: Nullable<string>;
+  activatedAt?: Nullable<string>;
   phoneNumber?: Nullable<string>;
   avatarUrl?: Nullable<string>;
+  bio?: Nullable<string>;
   studentProfile?: Nullable<IStudentProfile>;
   facultyProfile?: Nullable<IFacultyProfile>;
   adminProfile?: Nullable<IAdminProfile>;
@@ -111,11 +131,16 @@ export interface UserDTO {
  */
 export interface CreateUserInput {
   email: string;
+  username?: string;
   fullName: string;
   role: UserRole;
+  adminSubRole?: AdminSubRole;
   status?: UserStatus;
+  isEmailVerified?: boolean;
   authProviderId?: string;
   departmentId?: string;
+  provisionedBy?: string;
+  activatedAt?: Date;
   phoneNumber?: string;
   avatarUrl?: string;
   isProfileComplete?: boolean;
@@ -131,12 +156,12 @@ export interface UpdateUserProfileInput {
   fullName?: string;
   phoneNumber?: string;
   avatarUrl?: string;
-  studentProfile?: {
-    section?: string;
-  };
+  bio?: string;
   facultyProfile?: {
     cabinRoom?: string;
     officeHours?: IFacultyOfficeHours;
+    specialization?: string[];
+    sharePhoneWithStudents?: boolean;
   };
 }
 
@@ -148,9 +173,11 @@ export interface UserSession {
   sessionId?: string;
   authProviderId?: string;
   email: string;
+  username?: string;
   fullName?: string;
   avatarUrl?: Nullable<string>;
   role: UserRole;
+  adminSubRole?: Nullable<AdminSubRole>;
   status?: UserStatus;
   departmentId?: Optional<string>;
 }

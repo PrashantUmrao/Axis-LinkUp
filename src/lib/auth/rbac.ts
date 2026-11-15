@@ -180,3 +180,56 @@ export function assertDepartmentScope(
     );
   }
 }
+
+/**
+ * Checks whether an authenticated user is a System Administrator.
+ * System Administrators possess global IAM provisioning and configuration authority.
+ */
+export function isSysAdmin(user: Pick<UserSession, 'role' | 'adminSubRole'>): boolean {
+  return (
+    user.role === 'super_admin' && (user.adminSubRole === 'sys_admin' || !user.adminSubRole)
+  );
+}
+
+/**
+ * Checks whether an authenticated user is a Department Head (HOD).
+ * HODs possess department-scoped academic and grievance review privileges.
+ */
+export function isHOD(user: Pick<UserSession, 'role' | 'adminSubRole'>): boolean {
+  return user.role === 'admin' && user.adminSubRole === 'hod';
+}
+
+/**
+ * Checks whether an authenticated user is the Executive Director.
+ * The Director possesses global executive grievance and appellate resolution privileges,
+ * but does not perform routine IAM account provisioning.
+ */
+export function isDirector(user: Pick<UserSession, 'role' | 'adminSubRole'>): boolean {
+  return user.role === 'super_admin' && user.adminSubRole === 'director';
+}
+
+/**
+ * Checks whether an authenticated user holds authority to provision accounts or mutate roles.
+ * Restricted to System Administrators (or root super admins), excluding Department HODs and Director.
+ */
+export function canManageUserRoles(user: Pick<UserSession, 'role' | 'adminSubRole'>): boolean {
+  return (
+    user.role === 'super_admin' && (user.adminSubRole === 'sys_admin' || !user.adminSubRole)
+  );
+}
+
+/**
+ * Asserts that the caller is authorized to modify user roles or administrative sub-roles.
+ * Throws ForbiddenError if caller does not possess IAM management authority.
+ */
+export function assertCanManageUserRoles(
+  user: Pick<UserSession, 'role' | 'adminSubRole'>,
+  customMessage?: string
+): void {
+  if (!canManageUserRoles(user)) {
+    throw new ForbiddenError(
+      customMessage ??
+        'Access denied. Only System Administrators are authorized to manage user roles and administrative assignments.'
+    );
+  }
+}

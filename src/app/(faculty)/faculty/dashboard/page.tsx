@@ -13,6 +13,7 @@ import {
   FacultyAcademicGroupsCard,
   FacultyStudentOverview,
   FacultyNoticeSection,
+  FacultyPollSection,
   FacultyAcademicCalendar,
   FacultyQuickActions,
   FacultyRecentActivity,
@@ -103,7 +104,10 @@ export default async function FacultyDashboardPage() {
           <FacultyAcademicGroupsCard />
 
           {/* Department Notices & Circulars */}
-          <FacultyNoticeSection />
+          <FacultyNoticeSection user={userDTO} />
+
+          {/* Classroom Polls & Student Sentiment */}
+          <FacultyPollSection user={userDTO} />
 
           {/* Quick Actions Shortcuts */}
           <FacultyQuickActions />
