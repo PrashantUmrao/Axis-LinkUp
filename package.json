@@ -11,10 +11,12 @@
     "type-check": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npx tsx --test tests/unit/**/*.test.ts"
+    "test": "npx tsx --test tests/unit/**/*.test.ts",
+    "postinstall": "node scripts/patch-ably.js"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.26",
+    "ably": "^2.30.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "lucide-react": "^1.70.0",

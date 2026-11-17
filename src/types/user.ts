@@ -127,6 +127,24 @@ export interface UserDTO {
 }
 
 /**
+ * Public Collegiate Directory User DTO (safe for direct messaging & user discovery).
+ * Never exposes credentials, auth tokens, or private administrative fields.
+ */
+export interface DirectoryUserDTO {
+  id: string;
+  fullName: string;
+  username?: Nullable<string>;
+  email: string;
+  role: UserRole;
+  adminSubRole?: Nullable<AdminSubRole>;
+  avatarUrl?: Nullable<string>;
+  departmentName?: Nullable<string>;
+  departmentId?: Nullable<string>;
+  rollNumber?: Nullable<string>;
+  designation?: Nullable<string>;
+}
+
+/**
  * Input DTO for user creation.
  */
 export interface CreateUserInput {

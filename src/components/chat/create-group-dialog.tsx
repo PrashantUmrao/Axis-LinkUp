@@ -2,13 +2,14 @@
 
 /**
  * Faculty Academic Group Creation Dialog.
- * Enforces Phase 4.8.2 permission rules:
+ * Enforces Phase 5.6 permission rules & ADR-007 specifications:
  * - Only verified Faculty (or Super Admin) can initiate academic group creation.
- * - Students cannot create groups or add members.
+ * - Students cannot create groups or add members (Zero-Trust enforced on server).
  * - Configures broadcast policy (broadcast-only vs open-discussion).
+ * - Connects to POST /api/v1/chat/conversations to persist in MongoDB.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -21,34 +22,94 @@ import {
   Textarea,
   Badge,
 } from '@/components/ui';
-import { Users, Search, Plus, X, ShieldCheck, Volume2, MessageSquare, Check } from 'lucide-react';
+import {
+  Users,
+  Search,
+  Plus,
+  X,
+  ShieldCheck,
+  Volume2,
+  MessageSquare,
+  Check,
+  AlertCircle,
+  Loader2,
+} from 'lucide-react';
 import type { Conversation, ConversationMember } from '@/types/chat';
 
 interface CreateGroupDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onGroupCreated: (newGroup: Conversation) => void;
+  departmentId?: string;
 }
 
-// Verified institutional student roster for selection
-const ELIGIBLE_STUDENTS: ConversationMember[] = [
-  { id: 'std-1', name: 'Aarav Sharma', role: 'student' },
-  { id: 'std-2', name: 'Priya Verma', role: 'student' },
-  { id: 'std-3', name: 'Rohan Gupta', role: 'student' },
-  { id: 'std-4', name: 'Ananya Mishra', role: 'student' },
-  { id: 'std-5', name: 'Kabir Patel', role: 'student' },
-  { id: 'std-6', name: 'Sneha Reddy', role: 'student' },
-  { id: 'std-7', name: 'Vikram Singh', role: 'student' },
+// Fallback student roster for demo / offline mode
+const FALLBACK_STUDENTS: ConversationMember[] = [
+  { id: '6730a005f8b1a2001a000301', name: 'Aarav Sharma', role: 'student' },
+  { id: '6730a005f8b1a2001a000302', name: 'Priya Verma', role: 'student' },
+  { id: '6730a005f8b1a2001a000303', name: 'Rohan Gupta', role: 'student' },
+  { id: '6730a005f8b1a2001a000304', name: 'Ananya Mishra', role: 'student' },
 ];
 
-export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGroupDialogProps) {
+export function CreateGroupDialog({
+  isOpen,
+  onClose,
+  onGroupCreated,
+  departmentId,
+}: CreateGroupDialogProps) {
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [policy, setPolicy] = useState<'broadcast_only' | 'open_discussion'>('broadcast_only');
+  const [courseCode, setCourseCode] = useState('');
+  const [semester, setSemester] = useState<string>('3');
+  const [section, setSection] = useState('A');
   const [searchQuery, setSearchQuery] = useState('');
+  const [eligibleStudents, setEligibleStudents] = useState<ConversationMember[]>(FALLBACK_STUDENTS);
   const [selectedStudents, setSelectedStudents] = useState<ConversationMember[]>([]);
+  const [manualStudentId, setManualStudentId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredStudents = ELIGIBLE_STUDENTS.filter(
+  // Dynamically load department academic roster when opened
+  useEffect(() => {
+    if (!isOpen || !departmentId) return;
+
+    let isMounted = true;
+    async function loadDepartmentRoster() {
+      try {
+        const res = await fetch(`/api/v1/departments/${departmentId}/roster?limit=50`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const students = json.data?.students || [];
+        if (isMounted && students.length > 0) {
+          const mapped: ConversationMember[] = students.map(
+            (s: { id: string; fullName: string; rollNumber?: string }) => ({
+              id: s.id,
+              name: s.fullName,
+              role: 'student',
+            })
+          );
+          setEligibleStudents((prev) => {
+            const combined = [...mapped, ...prev];
+            const seen = new Set<string>();
+            return combined.filter((s) => {
+              if (seen.has(s.id)) return false;
+              seen.add(s.id);
+              return true;
+            });
+          });
+        }
+      } catch {
+        // Safe offline fallback
+      }
+    }
+    loadDepartmentRoster();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, departmentId]);
+
+  const filteredStudents = eligibleStudents.filter(
     (student) =>
       student.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
       !selectedStudents.some((s) => s.id === student.id)
@@ -62,37 +123,65 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
     setSelectedStudents((prev) => prev.filter((s) => s.id !== studentId));
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const addManualStudentId = () => {
+    const id = manualStudentId.trim();
+    if (!id) return;
+    if (selectedStudents.some((s) => s.id === id)) return;
+    setSelectedStudents((prev) => [
+      ...prev,
+      { id, name: `Student (${id.slice(-4)})`, role: 'student' },
+    ]);
+    setManualStudentId('');
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupName.trim()) return;
 
-    const newGroup: Conversation = {
-      id: `grp-${Date.now()}`,
-      type: 'group',
+    setIsSubmitting(true);
+    setError(null);
+
+    const payload = {
       name: groupName.trim(),
-      handle: `@${groupName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
-      description: groupDescription.trim() || 'Department academic cohort',
-      isGroup: true,
-      unreadCount: 0,
+      description: groupDescription.trim() || undefined,
       groupPolicy: policy,
-      lastMessage: 'Academic group created by Faculty Moderator',
-      lastMessageTime: 'Just now',
-      members: [
-        { id: 'fac-current', name: 'Faculty Moderator (You)', role: 'faculty', isModerator: true },
-        ...selectedStudents,
-      ],
+      departmentId: departmentId || undefined,
+      academicContext: {
+        courseCode: courseCode.trim() || undefined,
+        semester: semester ? Number(semester) : undefined,
+        section: section.trim().toUpperCase() || undefined,
+      },
+      initialMemberIds: selectedStudents.map((s) => s.id),
     };
 
-    onGroupCreated(newGroup);
-    onClose();
-    setGroupName('');
-    setGroupDescription('');
-    setSelectedStudents([]);
+    try {
+      const res = await fetch('/api/v1/chat/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.message || `Failed to create group (HTTP ${res.status})`);
+      }
+
+      onGroupCreated(json.data);
+      onClose();
+      setGroupName('');
+      setGroupDescription('');
+      setCourseCode('');
+      setSelectedStudents([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="bg-card/95 border-glass-border max-w-md space-y-4 border p-6 shadow-2xl backdrop-blur-xl">
+      <DialogContent className="bg-card/95 border-glass-border max-w-lg space-y-4 border p-6 shadow-2xl backdrop-blur-xl">
         <DialogHeader className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="bg-primary/10 text-primary ring-primary/20 flex size-8 items-center justify-center rounded-lg ring-1">
@@ -100,43 +189,86 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
             </div>
             <div>
               <DialogTitle className="font-heading text-foreground text-base font-bold">
-                Create Academic Group
+                Create Academic Group Cohort
               </DialogTitle>
               <DialogDescription className="text-muted-foreground text-xs">
-                Faculty-moderated collegiate channel with access governance
+                Faculty-moderated collegiate channel with course context and policy governance
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleCreate} className="space-y-4 pt-1">
-          {/* Group Name & Handle */}
-          <div className="space-y-1.5">
-            <label className="text-foreground text-xs font-semibold">Group Title</label>
+        {error && (
+          <div className="border-destructive/30 bg-destructive/10 text-destructive flex items-center gap-2 rounded-xl border p-2.5 text-xs">
+            <AlertCircle className="size-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleCreate} className="max-h-[75vh] space-y-3.5 overflow-y-auto pr-1 pt-1">
+          {/* Group Name */}
+          <div className="space-y-1">
+            <label className="text-foreground text-xs font-semibold">
+              Group Title <span className="text-destructive">*</span>
+            </label>
             <Input
-              placeholder="e.g. CSE-301 Algorithms Batch A"
+              placeholder="e.g. CSE-301 Data Structures Official"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
               className="bg-card/60 border-glass-border h-9 text-xs"
               required
+              minLength={3}
             />
           </div>
 
+          {/* Academic Context (Course Code, Semester, Section) */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <label className="text-foreground text-xs font-semibold">Course Code</label>
+              <Input
+                placeholder="e.g. CS301"
+                value={courseCode}
+                onChange={(e) => setCourseCode(e.target.value)}
+                className="bg-card/60 border-glass-border h-8 text-xs uppercase"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-foreground text-xs font-semibold">Semester</label>
+              <Input
+                type="number"
+                min={1}
+                max={12}
+                placeholder="3"
+                value={semester}
+                onChange={(e) => setSemester(e.target.value)}
+                className="bg-card/60 border-glass-border h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-foreground text-xs font-semibold">Section</label>
+              <Input
+                placeholder="A"
+                maxLength={5}
+                value={section}
+                onChange={(e) => setSection(e.target.value)}
+                className="bg-card/60 border-glass-border h-8 text-xs uppercase"
+              />
+            </div>
+          </div>
+
           {/* Description */}
-          <div className="space-y-1.5">
-            <label className="text-foreground text-xs font-semibold">
-              Description & Objectives
-            </label>
+          <div className="space-y-1">
+            <label className="text-foreground text-xs font-semibold">Description</label>
             <Textarea
-              placeholder="Coursework clarifications, syllabus notices, and peer academic queries."
+              placeholder="Coursework clarifications, syllabus notices, and assignment deadlines."
               value={groupDescription}
               onChange={(e) => setGroupDescription(e.target.value)}
-              className="bg-card/60 border-glass-border min-h-[64px] text-xs"
+              className="bg-card/60 border-glass-border min-h-[56px] text-xs"
             />
           </div>
 
           {/* Communication Policy */}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <label className="text-foreground text-xs font-semibold">Channel Policy</label>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -181,9 +313,9 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-foreground text-xs font-semibold">
-                Add Students ({selectedStudents.length} selected)
+                Initial Student Members ({selectedStudents.length} selected)
               </label>
-              <span className="text-muted-foreground text-[10px]">CSE Department</span>
+              <span className="text-muted-foreground text-[10px]">Academic Department</span>
             </div>
 
             {/* Selected Pills */}
@@ -213,7 +345,7 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
             <div className="relative">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-3.5 -translate-y-1/2" />
               <Input
-                placeholder="Search registered students by name..."
+                placeholder="Search department students by name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="bg-card/60 border-glass-border h-8 pl-9 text-xs"
@@ -224,7 +356,7 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
             <div className="border-glass-border bg-card/30 divide-border/20 max-h-28 divide-y overflow-y-auto rounded-lg border">
               {filteredStudents.length === 0 ? (
                 <div className="text-muted-foreground p-2 text-center text-[11px]">
-                  {searchQuery ? 'No matching students found' : 'All available students selected'}
+                  {searchQuery ? 'No matching students found' : 'All roster candidates selected'}
                 </div>
               ) : (
                 filteredStudents.map((student) => (
@@ -247,12 +379,32 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
                 ))
               )}
             </div>
+
+            {/* Manual user ID entry */}
+            <div className="flex items-center gap-1.5 pt-1">
+              <Input
+                placeholder="Or enter 24-hex MongoDB user ID..."
+                value={manualStudentId}
+                onChange={(e) => setManualStudentId(e.target.value)}
+                className="bg-card/60 border-glass-border h-7 font-mono text-[11px]"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addManualStudentId}
+                disabled={!manualStudentId.trim()}
+                className="h-7 shrink-0 text-[10px]"
+              >
+                Add ID
+              </Button>
+            </div>
           </div>
 
-          <DialogFooter className="border-border/30 flex items-center justify-between border-t pt-2 sm:justify-between">
+          <DialogFooter className="border-border/30 flex items-center justify-between border-t pt-3 sm:justify-between">
             <div className="flex items-center gap-1 text-[10px] text-emerald-500">
               <ShieldCheck className="size-3" />
-              Faculty Governance Active
+              Zero-Trust Verification Active
             </div>
 
             <div className="flex items-center gap-2">
@@ -261,6 +413,7 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
                 variant="outline"
                 size="sm"
                 onClick={onClose}
+                disabled={isSubmitting}
                 className="text-xs"
               >
                 Cancel
@@ -269,11 +422,20 @@ export function CreateGroupDialog({ isOpen, onClose, onGroupCreated }: CreateGro
                 type="submit"
                 variant="pill-primary"
                 size="sm"
-                disabled={!groupName.trim()}
-                className="gap-1 text-xs"
+                disabled={isSubmitting || !groupName.trim()}
+                className="gap-1.5 text-xs shadow-xs"
               >
-                <Check className="size-3.5" />
-                Create Channel
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Check className="size-3.5" />
+                    Create Group
+                  </>
+                )}
               </Button>
             </div>
           </DialogFooter>

@@ -1,8 +1,15 @@
 'use client';
 
 /**
- * Chat Conversation Area Component (WhatsApp Web Inspired).
- * Handles message history, sender/receiver bubble alignment, timestamps, attachments, and message composition.
+ * Chat Conversation Area Component (WhatsApp Web Architecture).
+ *
+ * Conforms to Phase 5.6:
+ * - Real-time message streaming with Ably WebSocket connection status
+ * - Sender/receiver bubble alignment, timestamps, attachments, read receipts (blue double-check)
+ * - Soft-deleted message handling ("This message was deleted")
+ * - Message deletion authorization (authors & faculty group administrators)
+ * - Message history pagination ("Load earlier messages")
+ * - Strict Broadcast-Only policy enforcement (disables input for students with clear policy notice)
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -11,42 +18,65 @@ import {
   Send,
   Paperclip,
   Smile,
-  MoreVertical,
   Info,
   ArrowLeft,
+  Check,
   CheckCheck,
   FileText,
   VolumeX,
   Users,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '@/types/chat';
 import type { UserRole } from '@/types/user';
+import type { AblyConnectionStatus } from '@/hooks/use-ably-chat';
 
 interface ChatConversationViewProps {
   conversation: Conversation | null;
   messages: ChatMessage[];
   onSendMessage: (content: string) => void;
+  onDeleteMessage?: (messageId: string) => void;
+  onLoadEarlier?: () => void;
+  hasMore?: boolean;
+  isLoadingEarlier?: boolean;
   onBackMobile?: () => void;
   onToggleInfoPanel: () => void;
   currentUserRole: UserRole;
+  currentUserId: string;
   isInfoPanelOpen: boolean;
+  ablyStatus?: AblyConnectionStatus;
 }
 
 export function ChatConversationView({
   conversation,
   messages,
   onSendMessage,
+  onDeleteMessage,
+  onLoadEarlier,
+  hasMore = false,
+  isLoadingEarlier = false,
   onBackMobile,
   onToggleInfoPanel,
   currentUserRole,
+  currentUserId,
   isInfoPanelOpen,
+  ablyStatus = 'offline',
 }: ChatConversationViewProps) {
   const [inputText, setInputText] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const initialLoadRef = useRef(true);
 
+  // Auto-scroll on initial load or new message
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (initialLoadRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      initialLoadRef.current = false;
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages.length]);
 
   if (!conversation) {
     return (
@@ -58,8 +88,8 @@ export function ChatConversationView({
           Axis LinkUp Collegiate Chat
         </h3>
         <p className="text-muted-foreground mt-1 max-w-sm text-xs">
-          Select a verified conversation or academic group from the left panel to begin secure
-          messaging.
+          Select a verified conversation or faculty academic group from the sidebar to begin
+          collegiate messaging.
         </p>
       </div>
     );
@@ -68,12 +98,26 @@ export function ChatConversationView({
   const isBroadcastOnly = conversation.isGroup && conversation.groupPolicy === 'broadcast_only';
   const isStudent = currentUserRole === 'student';
   const isRestrictedFromPosting = isBroadcastOnly && isStudent;
+  const isFacultyOrAdmin =
+    currentUserRole === 'faculty' ||
+    currentUserRole === 'super_admin' ||
+    conversation.createdBy === currentUserId;
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || isRestrictedFromPosting) return;
     onSendMessage(inputText.trim());
     setInputText('');
+  };
+
+  const handleDelete = async (messageId: string) => {
+    if (!onDeleteMessage) return;
+    setDeletingId(messageId);
+    try {
+      await onDeleteMessage(messageId);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const initials = conversation.name
@@ -131,13 +175,34 @@ export function ChatConversationView({
               )}
             </div>
 
-            <p className="text-muted-foreground text-[11px]">
-              {conversation.isGroup
-                ? `${conversation.members?.length || 0} enrolled members`
-                : conversation.isOnline
-                  ? 'Active on campus'
-                  : 'Offline'}
-            </p>
+            <div className="flex items-center gap-2 text-[11px]">
+              <p className="text-muted-foreground">
+                {conversation.isGroup
+                  ? `${conversation.members?.length || 0} enrolled members`
+                  : conversation.handle || 'Collegiate Member'}
+              </p>
+
+              {/* Real-Time Connection Indicator */}
+              <span className="text-muted-foreground">•</span>
+              <span className="flex items-center gap-1 font-mono text-[10px]">
+                {ablyStatus === 'connected' ? (
+                  <span className="flex items-center gap-1 text-emerald-500">
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                    Live
+                  </span>
+                ) : ablyStatus === 'connecting' ? (
+                  <span className="flex items-center gap-1 text-amber-500">
+                    <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+                    Connecting...
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <span className="bg-muted-foreground size-1.5 rounded-full" />
+                    Local Sync
+                  </span>
+                )}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -157,87 +222,157 @@ export function ChatConversationView({
           >
             <Info className="size-4" />
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground h-8 rounded-lg p-2"
-            title="Options"
-          >
-            <MoreVertical className="size-4" />
-          </Button>
         </div>
       </div>
 
       {/* Message History Feed */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="flex-1 space-y-3.5 overflow-y-auto p-4">
+        {/* Pagination Trigger: Load Earlier Messages */}
+        {hasMore && (
+          <div className="flex justify-center pb-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onLoadEarlier}
+              disabled={isLoadingEarlier}
+              className="border-glass-border bg-card/60 h-7 text-[10px]"
+            >
+              {isLoadingEarlier ? (
+                <>
+                  <Loader2 className="mr-1 size-3 animate-spin" />
+                  Loading history...
+                </>
+              ) : (
+                'Load earlier messages'
+              )}
+            </Button>
+          </div>
+        )}
+
         {/* Date Divider */}
         <div className="flex items-center justify-center">
-          <span className="bg-card/60 border-glass-border text-muted-foreground rounded-full border px-3 py-1 font-mono text-[10px] font-medium">
-            Today
+          <span className="bg-card/60 border-glass-border text-muted-foreground rounded-full border px-3 py-0.5 font-mono text-[10px] font-medium">
+            Collegiate Dialogue History
           </span>
         </div>
 
+        {/* Empty messages note */}
+        {messages.length === 0 && (
+          <div className="text-muted-foreground py-8 text-center text-xs">
+            No messages in this channel yet. Send an opening message to begin dialogue.
+          </div>
+        )}
+
         {/* Messages */}
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'} space-y-1`}
-          >
-            {/* Sender Label for group chats */}
-            {!msg.isOwn && conversation.isGroup && (
-              <div className="text-primary flex items-center gap-1 px-1 text-[10px] font-semibold">
-                <span>{msg.senderName}</span>
-                <Badge variant="outline" className="px-1 py-0 font-mono text-[8px] uppercase">
-                  {msg.senderRole}
-                </Badge>
-              </div>
-            )}
+        {messages.map((msg) => {
+          const isOwn = msg.senderId === currentUserId || Boolean(msg.isOwn);
+          const canDelete =
+            !msg.isDeleted &&
+            (isOwn ||
+              (conversation.isGroup && isFacultyOrAdmin));
 
-            {/* Bubble */}
+          return (
             <div
-              className={`max-w-[82%] rounded-2xl p-3 shadow-xs transition-all sm:max-w-md ${
-                msg.isOwn
-                  ? 'bg-primary text-primary-foreground rounded-tr-xs'
-                  : 'bg-card/75 border-glass-border text-foreground rounded-tl-xs border backdrop-blur-md'
-              }`}
+              key={msg.id}
+              className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'} space-y-1`}
             >
-              <p className="text-xs leading-relaxed whitespace-pre-wrap select-text sm:text-sm">
-                {msg.content}
-              </p>
-
-              {/* Attachments if any */}
-              {msg.attachments && msg.attachments.length > 0 && (
-                <div className="border-border/20 mt-2 space-y-1.5 border-t pt-1">
-                  {msg.attachments.map((att) => (
-                    <div
-                      key={att.id}
-                      className="bg-card/40 flex items-center justify-between gap-2 rounded-lg p-2 text-xs"
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <FileText className="text-primary size-4 shrink-0" />
-                        <span className="truncate">{att.name}</span>
-                      </div>
-                      <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
-                        {(att.size / 1024).toFixed(0)} KB
-                      </span>
-                    </div>
-                  ))}
+              {/* Sender Label for group chats */}
+              {!isOwn && conversation.isGroup && (
+                <div className="text-primary flex items-center gap-1 px-1 text-[10px] font-semibold">
+                  <span>{msg.senderName}</span>
+                  <Badge variant="outline" className="px-1 py-0 font-mono text-[8px] uppercase">
+                    {msg.senderRole}
+                  </Badge>
                 </div>
               )}
 
-              {/* Timestamp & Status */}
+              {/* Bubble */}
               <div
-                className={`mt-1 flex items-center justify-end gap-1 font-mono text-[9px] ${
-                  msg.isOwn ? 'text-primary-foreground/75' : 'text-muted-foreground'
+                className={`relative max-w-[82%] rounded-2xl p-3 shadow-xs transition-all sm:max-w-md ${
+                  msg.isDeleted
+                    ? 'border-glass-border bg-card/40 text-muted-foreground rounded-tl-xs border italic'
+                    : isOwn
+                      ? 'bg-primary text-primary-foreground rounded-tr-xs'
+                      : 'bg-card/75 border-glass-border text-foreground rounded-tl-xs border backdrop-blur-md'
                 }`}
               >
-                <span>{msg.timestamp}</span>
-                {msg.isOwn && <CheckCheck className="size-3" />}
+                {msg.isDeleted ? (
+                  <p className="text-xs leading-relaxed">
+                    This message was deleted by {isOwn ? 'author' : 'moderator'}.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs leading-relaxed whitespace-pre-wrap select-text sm:text-sm">
+                      {msg.content}
+                    </p>
+
+                    {/* Attachments if any */}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="border-border/20 mt-2 space-y-1.5 border-t pt-1">
+                        {msg.attachments.map((att) => (
+                          <div
+                            key={att.id}
+                            className="bg-card/40 flex items-center justify-between gap-2 rounded-lg p-2 text-xs"
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <FileText className="text-primary size-4 shrink-0" />
+                              <span className="truncate">{att.name}</span>
+                            </div>
+                            <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+                              {(att.size / 1024).toFixed(0)} KB
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Timestamp, Read Status & Delete Action */}
+                <div
+                  className={`mt-1 flex items-center justify-end gap-1.5 font-mono text-[9px] ${
+                    isOwn && !msg.isDeleted
+                      ? 'text-primary-foreground/75'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  <span>{msg.timestamp}</span>
+
+                  {/* WhatsApp-Style Read Receipt Indicator */}
+                  {isOwn && !msg.isDeleted && (
+                    <span title={msg.status === 'read' ? 'Read by recipient' : 'Sent to server'}>
+                      {msg.status === 'read' ? (
+                        <CheckCheck className="size-3 text-sky-300 dark:text-sky-400" />
+                      ) : msg.status === 'delivered' ? (
+                        <CheckCheck className="size-3" />
+                      ) : (
+                        <Check className="size-3" />
+                      )}
+                    </span>
+                  )}
+
+                  {/* Soft Delete Trigger */}
+                  {canDelete && onDeleteMessage && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(msg.id)}
+                      disabled={deletingId === msg.id}
+                      className="hover:text-destructive opacity-0 transition-opacity group-hover:opacity-100"
+                      title="Delete message"
+                    >
+                      {deletingId === msg.id ? (
+                        <Loader2 className="size-2.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-2.5" />
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div ref={messagesEndRef} />
       </div>

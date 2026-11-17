@@ -12,6 +12,7 @@ import type {
   UserRole,
   UserStatus,
   AdminSubRole,
+  DirectoryUserDTO,
 } from '@/types/user';
 
 export class UserRepository {
@@ -510,6 +511,94 @@ export class UserRepository {
     if (!Types.ObjectId.isValid(id)) return false;
     const result = await UserModel.findByIdAndDelete(id).exec();
     return !!result;
+  }
+
+  /**
+   * Searches active, provisioned collegiate users for directory discovery and direct messaging.
+   * Conforms to Zero-Trust privacy:
+   * - Restricts to status: 'active'
+   * - Requires external auth identity (authProviderId exists and is non-null)
+   * - Excludes currently authenticated user
+   * - Searches across fullName, username, email, rollNumber, employeeId using sanitized regex
+   * - Returns safe DirectoryUserDTO instances with no sensitive credentials or internal secrets.
+   */
+  public static async searchDirectory(options: {
+    query?: string;
+    currentUserId?: string;
+    roles?: UserRole[];
+    departmentId?: string;
+    limit?: number;
+  }): Promise<DirectoryUserDTO[]> {
+    const limit = Math.min(50, Math.max(1, options.limit || 20));
+    const filter: Record<string, unknown> = {
+      status: 'active',
+      authProviderId: { $exists: true, $ne: null },
+    };
+
+    // Exclude current caller (checks both ObjectId and authProviderId if non-ObjectId)
+    if (options.currentUserId && options.currentUserId.trim()) {
+      const trimmedId = options.currentUserId.trim();
+      if (Types.ObjectId.isValid(trimmedId)) {
+        filter._id = { $ne: new Types.ObjectId(trimmedId) };
+      } else {
+        filter.authProviderId = { $ne: trimmedId };
+      }
+    }
+
+    // Role filter
+    if (options.roles && options.roles.length > 0) {
+      filter.role = { $in: options.roles };
+    }
+
+    // Department filter if provided
+    if (options.departmentId && Types.ObjectId.isValid(options.departmentId)) {
+      filter.departmentId = new Types.ObjectId(options.departmentId);
+    }
+
+    // Search query matching
+    const q = options.query?.trim();
+    if (q) {
+      const cleanQ = q.replace(/^@/, '');
+      const escaped = cleanQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+
+      filter.$or = [
+        { fullName: regex },
+        { username: regex },
+        { email: regex },
+        { 'studentProfile.rollNumber': regex },
+        { 'facultyProfile.employeeId': regex },
+      ];
+    }
+
+    const users = await UserModel.find(filter)
+      .populate('departmentId', 'name code')
+      .sort({ role: 1, fullName: 1 })
+      .limit(limit)
+      .lean()
+      .exec();
+
+    return users.map((u) => {
+      const dept = u.departmentId as unknown as { _id: Types.ObjectId; name?: string; code?: string } | null;
+      return {
+        id: u._id.toString(),
+        fullName: u.fullName,
+        username: u.username || null,
+        email: u.email,
+        role: u.role,
+        adminSubRole: u.adminSubRole || null,
+        avatarUrl: u.avatarUrl || null,
+        departmentName: dept?.name || null,
+        departmentId: dept?._id ? dept._id.toString() : (u.departmentId ? u.departmentId.toString() : null),
+        rollNumber: u.studentProfile?.rollNumber || null,
+        designation:
+          u.role === 'faculty'
+            ? u.facultyProfile?.designation || null
+            : u.role === 'admin'
+              ? u.adminProfile?.designation || (u.adminSubRole ? u.adminSubRole.toUpperCase() : null)
+              : null,
+      };
+    });
   }
 }
 

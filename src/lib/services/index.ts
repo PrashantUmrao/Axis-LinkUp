@@ -14,3 +14,5 @@ export * from './profile.service';
 export * from './notice.service';
 export * from './poll.service';
 export * from './complaint.service';
+export * from './chat.service';
+export * from './assignment.service';

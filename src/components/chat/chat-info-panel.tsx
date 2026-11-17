@@ -3,26 +3,55 @@
 /**
  * Chat Information Panel Component.
  * Surfaces details for active direct conversation or faculty academic group,
- * including verified member roster and communication policies.
+ * including verified member roster, academic context, and group governance controls.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Avatar, AvatarFallback, Badge, Button } from '@/components/ui';
-import { X, Users, ShieldCheck, Volume2, MessageSquare } from 'lucide-react';
+import {
+  X,
+  Users,
+  ShieldCheck,
+  Volume2,
+  MessageSquare,
+  Settings,
+  BookOpen,
+} from 'lucide-react';
+import { ManageMembersDialog } from './manage-members-dialog';
 import type { Conversation } from '@/types/chat';
+import type { UserRole } from '@/types/user';
 
 interface ChatInfoPanelProps {
   conversation: Conversation;
   onClose: () => void;
+  currentUserRole?: UserRole;
+  currentUserId?: string;
+  onConversationUpdated?: (updated: Conversation) => void;
 }
 
-export function ChatInfoPanel({ conversation, onClose }: ChatInfoPanelProps) {
+export function ChatInfoPanel({
+  conversation,
+  onClose,
+  currentUserRole = 'student',
+  currentUserId = '',
+  onConversationUpdated,
+}: ChatInfoPanelProps) {
+  const [isManageMembersOpen, setIsManageMembersOpen] = useState(false);
+
   const initials = conversation.name
     .split(' ')
     .map((n) => n[0])
     .slice(0, 2)
     .join('')
     .toUpperCase();
+
+  const isFacultyOrAdmin =
+    currentUserRole === 'faculty' ||
+    currentUserRole === 'super_admin' ||
+    conversation.createdBy === currentUserId ||
+    conversation.moderatorId === currentUserId;
+
+  const academicCtx = conversation.academicContext;
 
   return (
     <div className="border-glass-border bg-card/60 z-20 flex h-full w-80 flex-col border-l backdrop-blur-xl">
@@ -44,7 +73,7 @@ export function ChatInfoPanel({ conversation, onClose }: ChatInfoPanelProps) {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 space-y-5 overflow-y-auto p-4">
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
         {/* Profile Card */}
         <div className="border-border/30 flex flex-col items-center space-y-2 border-b pb-3 text-center">
           <Avatar className="border-primary/20 size-16 border-2 shadow-sm">
@@ -86,7 +115,45 @@ export function ChatInfoPanel({ conversation, onClose }: ChatInfoPanelProps) {
               )}
             </Badge>
           )}
+
+          {conversation.isArchived && (
+            <Badge variant="outline" className="text-muted-foreground text-[9px] uppercase">
+              Archived Channel
+            </Badge>
+          )}
         </div>
+
+        {/* Academic Context Badges (if group) */}
+        {conversation.isGroup && (academicCtx?.courseCode || academicCtx?.semester) && (
+          <div className="bg-card/40 border-glass-border space-y-1.5 rounded-xl border p-2.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-sky-600 uppercase dark:text-sky-400">
+              <BookOpen className="size-3" />
+              <span>Instructional Alignment</span>
+            </div>
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {academicCtx.courseCode && (
+                <Badge variant="glass" className="font-mono text-[9px]">
+                  Course: {academicCtx.courseCode}
+                </Badge>
+              )}
+              {academicCtx.semester && (
+                <Badge variant="glass" className="text-[9px]">
+                  Sem {academicCtx.semester}
+                </Badge>
+              )}
+              {academicCtx.section && (
+                <Badge variant="glass" className="text-[9px]">
+                  Sec {academicCtx.section}
+                </Badge>
+              )}
+              {academicCtx.batchYear && (
+                <Badge variant="glass" className="font-mono text-[9px]">
+                  Batch {academicCtx.batchYear}
+                </Badge>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Description */}
         {conversation.description && (
@@ -100,17 +167,33 @@ export function ChatInfoPanel({ conversation, onClose }: ChatInfoPanelProps) {
           </div>
         )}
 
+        {/* Faculty Governance Actions Trigger */}
+        {conversation.isGroup && isFacultyOrAdmin && (
+          <div className="pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsManageMembersOpen(true)}
+              className="border-glass-border h-8 w-full gap-1.5 text-xs"
+            >
+              <Settings className="size-3.5 text-sky-500" />
+              Manage Group & Members
+            </Button>
+          </div>
+        )}
+
         {/* Group Members List */}
         {conversation.isGroup && conversation.members && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-                Verified Members ({conversation.members.length})
+                Enrolled Members ({conversation.members.length})
               </span>
-              <span className="text-primary text-[10px] font-medium">CSE Dept</span>
+              <span className="text-primary text-[10px] font-medium">Verified Roster</span>
             </div>
 
-            <div className="divide-border/20 border-glass-border bg-card/30 max-h-56 space-y-1.5 divide-y overflow-y-auto rounded-xl border p-2">
+            <div className="divide-border/20 border-glass-border bg-card/30 max-h-52 space-y-1 divide-y overflow-y-auto rounded-xl border p-2">
               {conversation.members.map((member) => (
                 <div
                   key={member.id}
@@ -153,11 +236,26 @@ export function ChatInfoPanel({ conversation, onClose }: ChatInfoPanelProps) {
             <span>AITM Institutional Communication</span>
           </div>
           <p className="text-muted-foreground text-[10px] leading-relaxed">
-            All messages, files, and discussion logs are protected under collegiate privacy policies
-            and governed by the Axis IT Code of Conduct.
+            All collegiate discussion logs are protected under institutional privacy policies and
+            governed by the Axis IT Code of Conduct.
           </p>
         </div>
       </div>
+
+      {/* Member Management Dialog for authorized faculty */}
+      {conversation.isGroup && isFacultyOrAdmin && (
+        <ManageMembersDialog
+          isOpen={isManageMembersOpen}
+          onClose={() => setIsManageMembersOpen(false)}
+          conversation={conversation}
+          onConversationUpdated={(updated) => {
+            if (onConversationUpdated) {
+              onConversationUpdated(updated);
+            }
+          }}
+          currentUserId={currentUserId}
+        />
+      )}
     </div>
   );
 }

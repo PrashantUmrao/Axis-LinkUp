@@ -8,3 +8,6 @@ export * from './otp.repository';
 export * from './notice.repository';
 export * from './poll.repository';
 export * from './complaint.repository';
+export * from './chat.repository';
+export * from './assignment.repository';
+export * from './submission.repository';

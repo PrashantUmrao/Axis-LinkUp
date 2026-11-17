@@ -2,7 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SignOutButton } from '@clerk/nextjs';
-import { ShieldAlert, ArrowLeft, LogOut } from 'lucide-react';
+import { ShieldAlert, ArrowLeft, LogOut, Home } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { getCurrentSession } from '@/lib/auth';
 import { getRoleDashboard } from '@/lib/auth/routing';
@@ -74,8 +74,17 @@ export default async function UnauthorizedPage() {
           </Link>
         </Button>
 
+        {dashboardHref !== '/' && (
+          <Button asChild variant="outline" className="w-full text-xs">
+            <Link href="/">
+              <Home className="mr-2 size-4" />
+              Return to Campus Home
+            </Link>
+          </Button>
+        )}
+
         <SignOutButton redirectUrl="/sign-in">
-          <Button variant="outline" className="w-full text-xs">
+          <Button variant="ghost" className="text-muted-foreground hover:text-foreground w-full text-xs">
             <LogOut className="mr-2 size-4" />
             Sign In with Different Account
           </Button>
