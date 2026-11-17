@@ -23,6 +23,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/v1/auth/activation/complete',
   '/api/v1/auth/otp(.*)',
   '/api/v1/auth/password-recovery(.*)',
+  '/passport/(.*)',
+  '/api/v1/passport/public/(.*)',
 ]);
 
 /**

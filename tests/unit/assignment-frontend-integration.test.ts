@@ -41,8 +41,6 @@ import AdminAssignmentsPage from '../../src/app/(admin)/admin/assignments/page';
 // Repositories & Auth
 import { UserRepository } from '../../src/lib/db/repositories/user.repository';
 import { DepartmentRepository } from '../../src/lib/db/repositories/department.repository';
-import { AssignmentRepository } from '../../src/lib/db/repositories/assignment.repository';
-import { SubmissionRepository } from '../../src/lib/db/repositories/submission.repository';
 import { AssignmentService } from '../../src/lib/services/assignment.service';
 import { __setTestSession } from '../../src/lib/auth/server';
 

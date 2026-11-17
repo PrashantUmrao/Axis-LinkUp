@@ -25,13 +25,35 @@ import {
   Scale,
   Bell,
   FileCheck2,
-  Calendar,
   Sparkles,
   ArrowRight,
+  Inbox,
 } from 'lucide-react';
 
+interface QuickActionItem {
+  id: string;
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ElementType;
+  isLive: boolean;
+  color: string;
+  bgColor: string;
+  tooltip?: string;
+}
+
 export function StudentQuickActions() {
-  const actions = [
+  const actions: QuickActionItem[] = [
+    {
+      id: 'requests',
+      title: 'Service Requests',
+      description: 'Bonafide certificates, leave, & ID card replacements',
+      href: '/student/requests',
+      icon: Inbox,
+      isLive: true,
+      color: 'text-amber-500',
+      bgColor: 'bg-amber-500/10',
+    },
     {
       id: 'messages',
       title: 'Collegiate Messages',
@@ -63,37 +85,24 @@ export function StudentQuickActions() {
       bgColor: 'bg-emerald-500/10',
     },
     {
-      id: 'notices',
-      title: 'Campus Bulletins',
-      description: 'Official department announcements',
-      href: '/student/notices',
-      icon: Bell,
-      isLive: false,
-      color: 'text-cyan-500',
-      bgColor: 'bg-cyan-500/10',
-      tooltip: 'Campus notice board will activate in Phase 5.',
-    },
-    {
       id: 'assignments',
       title: 'Assignments Portal',
       description: 'Upload coursework & track evaluations',
       href: '/student/assignments',
       icon: FileCheck2,
-      isLive: false,
-      color: 'text-amber-500',
-      bgColor: 'bg-amber-500/10',
-      tooltip: 'Coursework submission dropboxes will activate in Phase 5.',
+      isLive: true,
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-500/10',
     },
     {
-      id: 'calendar',
-      title: 'Academic Timetable',
-      description: 'Lecture schedule & semester exam dates',
-      href: '/student/calendar',
-      icon: Calendar,
-      isLive: false,
-      color: 'text-rose-500',
-      bgColor: 'bg-rose-500/10',
-      tooltip: 'Lecture schedule will synchronize in Phase 5.',
+      id: 'notices',
+      title: 'Campus Bulletins',
+      description: 'Official department announcements',
+      href: '/student/notices',
+      icon: Bell,
+      isLive: true,
+      color: 'text-cyan-500',
+      bgColor: 'bg-cyan-500/10',
     },
   ];
 

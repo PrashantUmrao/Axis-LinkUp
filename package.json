@@ -12,6 +12,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npx tsx --test tests/unit/**/*.test.ts",
+    "test:integration": "npx tsx --test tests/integration/**/*.test.ts",
+    "test:all": "npm test && npm run test:integration",
+    "verify:prod": "npx tsx scripts/verify-production-env.ts",
     "postinstall": "node scripts/patch-ably.js"
   },
   "dependencies": {

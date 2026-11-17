@@ -63,6 +63,10 @@ export class AblyBroker {
     return `user:${userId}:notifications`;
   }
 
+  public static getEmergencyBroadcastChannel(): string {
+    return 'campus:emergency:broadcast';
+  }
+
   /**
    * Publishes an event to an Ably channel via stateless REST client.
    * If ABLY_API_KEY is not configured, logs a trace and safely succeeds (offline/mock mode).

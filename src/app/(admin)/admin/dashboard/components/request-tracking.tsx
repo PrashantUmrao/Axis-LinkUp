@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import Link from 'next/link';
 import {
   Card,
   CardHeader,
@@ -14,9 +15,10 @@ import {
   CardDescription,
   CardContent,
   Badge,
+  Button,
   EmptyState,
 } from '@/components/ui';
-import { Inbox, Clock, QrCode, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Inbox, Clock, QrCode, ShieldCheck, CheckCircle2, ChevronRight } from 'lucide-react';
 
 export function AdminRequestTracking() {
   return (
@@ -38,9 +40,17 @@ export function AdminRequestTracking() {
           </div>
         </div>
 
-        <Badge variant="outline" className="self-start text-[10px] sm:self-auto">
-          Phase 5
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px]">
+            Live Queue
+          </Badge>
+          <Button size="sm" variant="outline" asChild className="text-xs h-7">
+            <Link href="/admin/requests" className="flex items-center gap-1">
+              <span>Open Queue</span>
+              <ChevronRight className="h-3 w-3" />
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-4 p-0">

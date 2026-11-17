@@ -23,6 +23,7 @@ export async function GET(_req: NextRequest) {
 
     const capabilities: Record<string, string[]> = {
       [AblyBroker.getUserNotificationChannel(session.userId)]: ['subscribe'],
+      [AblyBroker.getEmergencyBroadcastChannel()]: ['subscribe'],
     };
 
     // Mint exact channel capability per authorized conversation (no wildcards permitted)

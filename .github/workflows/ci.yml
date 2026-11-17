@@ -1,0 +1,53 @@
+name: Axis LinkUp CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, Lint, Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (with postinstall patches)
+        run: npm ci
+
+      - name: TypeScript strict check
+        run: npm run typecheck
+
+      - name: ESLint code quality check
+        run: npm run lint
+
+      - name: Run unit & cross-module integration tests
+        run: npm run test:all
+
+      - name: Build production Next.js bundle
+        env:
+          NEXT_PUBLIC_APP_URL: https://axis-linkup-ci.example.com
+          NEXT_PUBLIC_APP_NAME: Axis LinkUp
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2ktcGxhY2Vob2xkZXIuY2xlcmsuYWNjb3VudHMuZGV2JA
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /
+          NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: axis-linkup-ci
+        run: npm run build

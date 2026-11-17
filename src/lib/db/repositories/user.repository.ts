@@ -344,6 +344,109 @@ export class UserRepository {
   }
 
   /**
+   * Updates a user's institutional department assignment (Protected IAM Governance Gate).
+   */
+  public static async updateDepartment(
+    id: string,
+    departmentId: string | null
+  ): Promise<IUser | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    const deptObjId =
+      departmentId && Types.ObjectId.isValid(departmentId)
+        ? new Types.ObjectId(departmentId)
+        : null;
+    return UserModel.findByIdAndUpdate(
+      id,
+      { $set: { departmentId: deptObjId } },
+      { new: true, runValidators: true }
+    ).exec();
+  }
+
+  /**
+   * Queries paginated institutional users for the Super Admin IAM Governance Console.
+   */
+  public static async findGovernedUsers(
+    filter: Record<string, unknown>,
+    page = 1,
+    limit = 25
+  ): Promise<{ users: IUser[]; total: number }> {
+    const validPage = Math.max(1, page);
+    const validLimit = Math.max(1, Math.min(100, limit));
+    const skip = (validPage - 1) * validLimit;
+
+    const [users, total] = await Promise.all([
+      UserModel.find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(validLimit)
+        .exec(),
+      UserModel.countDocuments(filter).exec(),
+    ]);
+
+    return { users, total };
+  }
+
+  /**
+   * Aggregates role and account lifecycle status counts for the IAM Governance KPI strip.
+   */
+  public static async getRoleDistributionStats(): Promise<{
+    totalUsers: number;
+    byRole: Record<UserRole, number>;
+    byStatus: {
+      active: number;
+      suspended: number;
+      pending_verification: number;
+      deactivated: number;
+      other: number;
+    };
+  }> {
+    const [agg] = await UserModel.aggregate([
+      {
+        $facet: {
+          totalCount: [{ $count: 'total' }],
+          roleCounts: [{ $group: { _id: '$role', count: { $sum: 1 } } }],
+          statusCounts: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+        },
+      },
+    ]).exec();
+
+    const byRole: Record<UserRole, number> = {
+      student: 0,
+      faculty: 0,
+      admin: 0,
+      super_admin: 0,
+    };
+
+    agg?.roleCounts?.forEach((item: { _id: UserRole; count: number }) => {
+      if (item._id && item._id in byRole) {
+        byRole[item._id] = item.count;
+      }
+    });
+
+    const byStatus = {
+      active: 0,
+      suspended: 0,
+      pending_verification: 0,
+      deactivated: 0,
+      other: 0,
+    };
+
+    agg?.statusCounts?.forEach((item: { _id: string; count: number }) => {
+      if (item._id === 'active') byStatus.active = item.count;
+      else if (item._id === 'suspended') byStatus.suspended = item.count;
+      else if (item._id === 'pending_verification') byStatus.pending_verification = item.count;
+      else if (item._id === 'deactivated') byStatus.deactivated = item.count;
+      else byStatus.other += item.count;
+    });
+
+    return {
+      totalUsers: agg?.totalCount?.[0]?.total || 0,
+      byRole,
+      byStatus,
+    };
+  }
+
+  /**
    * Links an external auth provider ID to an existing pre-provisioned user record by email.
    */
   public static async linkAuthProviderId(

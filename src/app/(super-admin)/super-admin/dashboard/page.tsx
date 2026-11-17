@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requireRole } from '@/lib/auth';
 import { ContentContainer } from '@/components/layouts';
@@ -11,6 +12,7 @@ import {
   Server,
   KeyRound,
   Cpu,
+  ArrowRight,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Badge } from '@/components/ui';
 
@@ -57,61 +59,76 @@ export default async function SuperAdminDashboardPage() {
 
       {/* Module Ingress Grid (Reference 2 Grid Layout) */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card
-          variant="glass"
-          className="border-glass-border hover:border-glass-border-hover space-y-2 border p-5 shadow-sm transition-colors"
-        >
-          <CardHeader className="p-0 pb-2">
-            <div className="text-primary flex items-center gap-2">
-              <BellRing className="size-4" />
-              <CardTitle className="text-sm font-semibold">Emergency Broadcast (MOD-16)</CardTitle>
-            </div>
-            <CardDescription className="text-xs">
-              Campus-wide lockdown and critical weather disaster notification triggers.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-muted-foreground p-0 text-xs">
-            Super Administrator Master Override Only
-          </CardContent>
-        </Card>
+        <Link href="/super-admin/emergency" className="block focus:outline-none">
+          <Card
+            variant="glass"
+            className="border-glass-border hover:border-destructive/50 h-full space-y-2 border p-5 shadow-sm transition-all hover:shadow-md"
+          >
+            <CardHeader className="p-0 pb-2">
+              <div className="text-destructive flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BellRing className="size-4" />
+                  <CardTitle className="text-sm font-semibold">Emergency Broadcast (MOD-16)</CardTitle>
+                </div>
+                <ArrowRight className="size-3.5" />
+              </div>
+              <CardDescription className="text-xs">
+                Campus-wide lockdown, weather closure alerts, portal takeovers, and acknowledgment tracking.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-destructive p-0 text-xs font-medium">
+              Open Emergency Command Console
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card
-          variant="glass"
-          className="border-glass-border hover:border-glass-border-hover space-y-2 border p-5 shadow-sm transition-colors"
-        >
-          <CardHeader className="p-0 pb-2">
-            <div className="flex items-center gap-2 text-sky-500">
-              <Users className="size-4" />
-              <CardTitle className="text-sm font-semibold">User &amp; Role Governance</CardTitle>
-            </div>
-            <CardDescription className="text-xs">
-              Manage accounts, assign administrative scopes, and enforce suspensions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-muted-foreground p-0 text-xs">
-            RBAC Matrix Modifications Restricted
-          </CardContent>
-        </Card>
+        <Link href="/super-admin/roles" className="block focus:outline-none">
+          <Card
+            variant="glass"
+            className="border-glass-border hover:border-primary/40 h-full space-y-2 border p-5 shadow-sm transition-all hover:shadow-md"
+          >
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center justify-between text-sky-500">
+                <div className="flex items-center gap-2">
+                  <Users className="size-4" />
+                  <CardTitle className="text-sm font-semibold">IAM Governance</CardTitle>
+                </div>
+                <ArrowRight className="size-3.5" />
+              </div>
+              <CardDescription className="text-xs">
+                Manage institutional roles, administrative sub-roles, suspensions, and the live RBAC permission matrix.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-primary p-0 text-xs font-medium">
+              Open IAM Governance Console
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card
-          variant="glass"
-          className="border-glass-border hover:border-glass-border-hover space-y-2 border p-5 shadow-sm transition-colors"
-        >
-          <CardHeader className="p-0 pb-2">
-            <div className="flex items-center gap-2 text-cyan-500">
-              <Activity className="size-4" />
-              <CardTitle className="text-sm font-semibold">
-                System Telemetry &amp; Auditing
-              </CardTitle>
-            </div>
-            <CardDescription className="text-xs">
-              Monitor active sessions, database connections, and immutable audit logs.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-muted-foreground p-0 text-xs">
-            Real-time Ingress Monitored
-          </CardContent>
-        </Card>
+        <Link href="/super-admin/audit" className="block focus:outline-none">
+          <Card
+            variant="glass"
+            className="border-glass-border hover:border-primary/40 h-full space-y-2 border p-5 shadow-sm transition-all hover:shadow-md"
+          >
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center justify-between text-cyan-500">
+                <div className="flex items-center gap-2">
+                  <Activity className="size-4" />
+                  <CardTitle className="text-sm font-semibold">
+                    Security Audit Logs
+                  </CardTitle>
+                </div>
+                <ArrowRight className="size-3.5" />
+              </div>
+              <CardDescription className="text-xs">
+                Inspect append-only hash-chained security events, verify cryptographic integrity, and export compliance reports.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-primary p-0 text-xs font-medium">
+              Open Immutable Audit Trail
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {/* Governance & Architecture Details Row */}

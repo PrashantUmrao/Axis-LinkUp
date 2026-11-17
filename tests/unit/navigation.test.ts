@@ -25,6 +25,7 @@ describe('Global Application Layout & Role-Based Navigation', () => {
     '/admin/dashboard',
     '/super-admin/dashboard',
     '/shared/profile',
+    '/shared/notifications',
     '/ui-preview',
     '/student/messages',
     '/faculty/messages',
@@ -41,6 +42,16 @@ describe('Global Application Layout & Role-Based Navigation', () => {
     '/student/assignments',
     '/faculty/assignments',
     '/admin/assignments',
+    '/student/requests',
+    '/admin/requests',
+    '/admin/spaces',
+    '/faculty/spaces',
+    '/super-admin/roles',
+    '/super-admin/audit',
+    '/super-admin/emergency',
+    '/student/passport',
+    '/faculty/passport',
+    '/admin/passport',
   ]);
 
   describe('1. Institutional Portal Metadata', () => {
@@ -80,15 +91,17 @@ describe('Global Application Layout & Role-Based Navigation', () => {
       }
     });
 
-    it('ensures all unimplemented modules are explicitly marked disabled with Phase 5 badge', () => {
+    it('ensures zero disabled placeholder items or excluded calendar entries remain', () => {
       const disabledItems = MASTER_NAVIGATION_ITEMS.filter((item) => item.disabled);
-      assert.ok(disabledItems.length > 0, 'There must be registered upcoming modules');
+      assert.equal(disabledItems.length, 0, 'Zero disabled Phase 5 placeholder items may remain');
 
-      for (const item of disabledItems) {
-        assert.equal(item.disabled, true);
-        assert.equal(item.badge, 'Phase 5');
-        assert.ok(item.description && item.description.length > 0);
-      }
+      const phase5Badged = MASTER_NAVIGATION_ITEMS.filter((item) => item.badge === 'Phase 5');
+      assert.equal(phase5Badged.length, 0, 'Zero Phase 5 placeholder badges may remain');
+
+      const calendarItems = MASTER_NAVIGATION_ITEMS.filter((item) =>
+        item.href.includes('/calendar')
+      );
+      assert.equal(calendarItems.length, 0, 'Academic Calendar routes are permanently excluded');
     });
   });
 

@@ -4,6 +4,11 @@ import { successResponse } from '@/lib/api/api-response';
 import { HTTP_STATUS } from '@/config/constants';
 import { handleApiError } from '@/lib/api/api-error-handler';
 import { requestOtpSchema } from '@/lib/validations/otp.schema';
+import {
+  checkRateLimit,
+  createRateLimitErrorResponse,
+  getClientIp,
+} from '@/lib/security/rate-limiter';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +20,15 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const rateCheck = checkRateLimit(`otp-req:${ip}`, {
+      maxRequests: 5,
+      windowMs: 60_000,
+    });
+    if (!rateCheck.allowed) {
+      return createRateLimitErrorResponse(rateCheck);
+    }
+
     let body: unknown;
     try {
       body = await req.json();

@@ -108,7 +108,7 @@ export function FacultyAssignmentManagement() {
           <EmptyState
             glass
             title="Evaluation Queue Clear"
-            description="You have no active coursework assignments awaiting evaluation or grading rubrics to publish. Click below to create and publish a new coursework assignment."
+            description="You have no active coursework assignments awaiting evaluation or grading rubrics to publish. Coursework assignments and grading rubrics will appear here once published."
             className="py-8"
           />
         ) : (

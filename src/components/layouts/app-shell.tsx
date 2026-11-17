@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { Sidebar } from '@/components/navigation/sidebar';
 import { Topbar } from '@/components/navigation/topbar';
 import { MobileDrawer } from '@/components/navigation/mobile-drawer';
+import { EmergencyGlobalBanner } from '@/components/emergency';
 import type { UserRole } from '@/types/user';
 
 interface AppShellUser {
@@ -104,6 +105,9 @@ export function AppShell({ user, children }: AppShellProps) {
           onToggleSidebar={handleToggleSidebar}
           onOpenMobileDrawer={handleOpenMobileDrawer}
         />
+
+        {/* Global Campus Emergency Mode Banner & Mandatory Takeover (MOD-16) */}
+        <EmergencyGlobalBanner />
 
         {/* Dynamic Main Content Slot */}
         <main className="w-full min-w-0 flex-1 pb-12">{children}</main>

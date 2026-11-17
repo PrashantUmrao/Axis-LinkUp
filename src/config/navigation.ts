@@ -150,6 +150,17 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
 
   // ==================== STUDENT MODULES ====================
   {
+    id: 'student-requests',
+    title: 'Service Requests',
+    href: '/student/requests',
+    iconName: 'Inbox',
+    roles: ['student'],
+    permission: PERMISSIONS.REQUESTS_SUBMIT,
+    disabled: false,
+    category: 'modules',
+    description: 'Bonafide certificates, leave applications, ID replacements, and academic clearances.',
+  },
+  {
     id: 'student-complaints',
     title: 'Complaints & Redressal',
     href: '/student/complaints',
@@ -193,26 +204,13 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     description: 'Coursework submission portal and grading tracking.',
   },
   {
-    id: 'student-calendar',
-    title: 'Academic Calendar',
-    href: '/student/calendar',
-    iconName: 'Calendar',
-    roles: ['student'],
-    permission: PERMISSIONS.CALENDAR_VIEW,
-    badge: 'Phase 5',
-    disabled: true,
-    category: 'modules',
-    description: 'Semester lecture timetable and exam schedules.',
-  },
-  {
     id: 'student-passport',
     title: 'Skill Passport',
     href: '/student/passport',
     iconName: 'Award',
     roles: ['student'],
     permission: PERMISSIONS.PASSPORT_SUBMIT_PROOF,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Verified academic credentials and co-curricular achievements.',
   },
@@ -260,6 +258,28 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     disabled: false,
     category: 'modules',
     description: 'Instant student feedback and interactive classroom voting.',
+  },
+  {
+    id: 'faculty-spaces',
+    title: 'Facility Bookings',
+    href: '/faculty/spaces',
+    iconName: 'Building2',
+    roles: ['faculty'],
+    permission: PERMISSIONS.SPACES_BOOK,
+    disabled: false,
+    category: 'modules',
+    description: 'Browse campus spaces, laboratories, and submit time-slot booking requests.',
+  },
+  {
+    id: 'faculty-passport',
+    title: 'Skill Verification',
+    href: '/faculty/passport',
+    iconName: 'Award',
+    roles: ['faculty'],
+    permission: PERMISSIONS.PASSPORT_VERIFY_CLAIM,
+    disabled: false,
+    category: 'modules',
+    description: 'Endorse and cryptographically verify student co-curricular achievement proofs.',
   },
 
   // ==================== ADMINISTRATOR MODULES ====================
@@ -313,8 +333,7 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'Inbox',
     roles: ['admin', 'super_admin'],
     permission: PERMISSIONS.REQUESTS_APPROVE_REJECT,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Student leave applications, bonafide requests, and clearances.',
   },
@@ -325,10 +344,20 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'Building2',
     roles: ['admin', 'super_admin'],
     permission: PERMISSIONS.SPACES_APPROVE,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Auditorium, laboratory, and seminar room reservations.',
+  },
+  {
+    id: 'admin-passport',
+    title: 'Accreditation & Passport',
+    href: '/admin/passport',
+    iconName: 'Award',
+    roles: ['admin', 'super_admin'],
+    permission: PERMISSIONS.PASSPORT_VERIFY_CLAIM,
+    disabled: false,
+    category: 'modules',
+    description: 'Verify student skill claims and export NAAC/NIRF accreditation datasets.',
   },
 
   // ==================== SUPER ADMIN MODULES ====================
@@ -339,8 +368,7 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'Users',
     roles: ['super_admin'],
     permission: PERMISSIONS.RBAC_MODIFY_ROLES,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Manage collegiate roles, permissions, and departmental assignments.',
   },
@@ -351,8 +379,7 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'FileText',
     roles: ['super_admin'],
     permission: PERMISSIONS.AUDIT_VIEW_LOGS,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Immutable authentication events and administrative action logs.',
   },
@@ -363,13 +390,22 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     iconName: 'AlertTriangle',
     roles: ['super_admin'],
     permission: PERMISSIONS.EMERGENCY_TRIGGER,
-    badge: 'Phase 5',
-    disabled: true,
+    disabled: false,
     category: 'modules',
     description: 'Broadcast campus-wide high-priority alerts with SMS/Email failover.',
   },
 
   // ==================== SHARED ACCOUNT (LIVE) ====================
+  {
+    id: 'shared-notifications',
+    title: 'Notifications',
+    href: '/shared/notifications',
+    iconName: 'Bell',
+    roles: ['student', 'faculty', 'admin', 'super_admin'],
+    permission: PERMISSIONS.USERS_READ_OWN,
+    category: 'account',
+    description: 'Unified campus notification inbox, alert history, and delivery preferences.',
+  },
   {
     id: 'shared-profile',
     title: 'Profile & Settings',
@@ -420,14 +456,14 @@ export function getBreadcrumbsForPath(
     breadcrumbs.push({ label: 'Complaints & Communication' });
   } else if (pathname.includes('/profile')) {
     breadcrumbs.push({ label: 'Profile & Settings' });
+  } else if (pathname.includes('/notifications')) {
+    breadcrumbs.push({ label: 'Notifications' });
   } else if (pathname.includes('/notices')) {
     breadcrumbs.push({ label: 'Campus Notices' });
   } else if (pathname.includes('/polls')) {
     breadcrumbs.push({ label: 'Campus Polls' });
   } else if (pathname.includes('/assignments')) {
     breadcrumbs.push({ label: 'Assignments' });
-  } else if (pathname.includes('/calendar')) {
-    breadcrumbs.push({ label: 'Academic Calendar' });
   } else if (pathname.includes('/passport')) {
     breadcrumbs.push({ label: 'Skill Passport' });
   } else if (pathname.includes('/requests')) {
