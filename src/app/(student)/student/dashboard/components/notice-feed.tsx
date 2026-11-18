@@ -41,9 +41,17 @@ export function StudentNoticeFeed() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [selectedNotice, setSelectedNotice] = useState<NoticeDTO | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const fetchNotices = useCallback(async () => {
     try {
@@ -54,8 +62,8 @@ export function StudentNoticeFeed() {
       if (categoryFilter !== 'all') {
         url.searchParams.set('category', categoryFilter);
       }
-      if (searchQuery.trim()) {
-        url.searchParams.set('search', searchQuery.trim());
+      if (debouncedSearch) {
+        url.searchParams.set('search', debouncedSearch);
       }
 
       const res = await fetch(url.toString());
@@ -73,7 +81,7 @@ export function StudentNoticeFeed() {
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter, searchQuery]);
+  }, [categoryFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchNotices();
@@ -165,11 +173,11 @@ export function StudentNoticeFeed() {
                 <SelectItem value="all">All Categories</SelectItem>
                 <SelectItem value="academic">Academic</SelectItem>
                 <SelectItem value="examination">Examination</SelectItem>
-                <SelectItem value="administrative">Administrative</SelectItem>
-                <SelectItem value="event">Campus Events</SelectItem>
-                <SelectItem value="emergency">Emergency / Urgent</SelectItem>
+                <SelectItem value="fee_accounts">Fees &amp; Accounts</SelectItem>
+                <SelectItem value="event_cultural">Events &amp; Cultural</SelectItem>
                 <SelectItem value="placement">Training &amp; Placement</SelectItem>
-                <SelectItem value="general">General</SelectItem>
+                <SelectItem value="administrative">Administrative</SelectItem>
+                <SelectItem value="emergency">Emergency / Urgent</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -233,7 +241,7 @@ export function StudentNoticeFeed() {
                         {notice.priority}
                       </Badge>
                       <Badge variant="outline" className="text-[10px] capitalize">
-                        {notice.category}
+                        {notice.category.replace(/_/g, ' ')}
                       </Badge>
                       {notice.targetScope?.scopeType && (
                         <span className="text-muted-foreground font-mono text-[10px] uppercase">
@@ -243,7 +251,14 @@ export function StudentNoticeFeed() {
                     </div>
                     <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
                       <Calendar className="size-3" />
-                      <span>{new Date(notice.createdAt).toLocaleDateString()}</span>
+                      <span>
+                        {new Intl.DateTimeFormat('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          timeZone: 'Asia/Kolkata',
+                        }).format(new Date(notice.createdAt))}
+                      </span>
                     </div>
                   </div>
 

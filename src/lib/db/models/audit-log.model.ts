@@ -163,6 +163,7 @@ AuditLogSchema.index({ actorId: 1, createdAt: -1 });
 AuditLogSchema.index({ department: 1, createdAt: -1 });
 AuditLogSchema.index({ targetEntityId: 1, createdAt: -1 });
 AuditLogSchema.index({ eventId: 1 }, { unique: true });
+AuditLogSchema.index({ previousHash: 1 }, { unique: true });
 AuditLogSchema.index({ entryHash: 1 }, { unique: true });
 
 // Strictly reject any update or delete query middleware

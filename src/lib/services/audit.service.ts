@@ -76,7 +76,31 @@ export interface RecordAuditEventInput {
   userAgent?: string | null;
 }
 
+const MAX_AUDIT_CHAIN_RETRIES = 5;
+
+function isDuplicateKeyError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: number }).code;
+  const message = String((err as { message?: string }).message || '');
+  return code === 11000 || message.includes('E11000');
+}
+
 export class AuditService {
+  /**
+   * In-process write queue serializing audit chain appends so concurrent calls
+   * within the same runtime never fork `previousHash` (AUD-C10).
+   */
+  private static writeQueue: Promise<void> = Promise.resolve();
+
+  private static enqueueChainWrite<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(work, work);
+    this.writeQueue = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+
   /**
    * Recursively strips sensitive credential/token/secret fields from state snapshots
    * before persistence in the immutable audit trail.
@@ -151,62 +175,92 @@ export class AuditService {
 
   /**
    * Appends a cryptographically hash-chained immutable event to the AuditLog collection.
+   * - Serializes intra-process writes via `enqueueChainWrite` (AUD-C10).
+   * - Normalizes `actorObjId` BEFORE computing `entryHash` so persisted & hashed `actorId` always match.
+   * - Enforces monotonic `createdAt` timestamps for deterministic chronological verification.
+   * - Retries on cross-instance duplicate `previousHash` / `eventId` collisions (E11000).
    */
   public static async recordEvent(input: RecordAuditEventInput): Promise<AuditLogDTO> {
-    const [latestEntry, eventId] = await Promise.all([
-      AuditLogRepository.findLatestEntry(),
-      AuditLogRepository.getNextEventId(),
-    ]);
-
-    const previousHash = latestEntry?.entryHash || 'GENESIS';
-    const createdAt = new Date();
-    const sanitizedOld = this.sanitizeState(input.oldState);
-    const sanitizedNew = this.sanitizeState(input.newState);
-
-    const normalizedAction = input.action.trim().toUpperCase();
-    const entryHash = this.computeEntryHash({
-      eventId,
-      actorId: String(input.actorId),
-      action: normalizedAction,
-      module: input.module,
-      targetEntityId: String(input.targetEntityId),
-      oldState: sanitizedOld,
-      newState: sanitizedNew,
-      previousHash,
-      createdAt: createdAt.toISOString(),
-    });
-
+    // Normalize actorId into its canonical ObjectId BEFORE hashing so stored & verified actorId match
     const actorObjId = Types.ObjectId.isValid(input.actorId)
       ? new Types.ObjectId(input.actorId)
       : new Types.ObjectId();
+    const canonicalActorId = actorObjId.toString();
 
-    const created = await AuditLogRepository.create({
-      eventId,
-      actorId: actorObjId,
-      actorSnapshot: {
-        fullName: input.actorSnapshot.fullName || 'System Actor',
-        email: input.actorSnapshot.email || 'system@axiscolleges.in',
-        role: input.actorSnapshot.role || 'super_admin',
-        department: input.actorSnapshot.department ?? null,
-      },
-      action: normalizedAction,
-      module: input.module,
-      severity: input.severity || 'info',
-      targetEntityType: input.targetEntityType,
-      targetEntityId: String(input.targetEntityId),
-      targetLabel: input.targetLabel ?? null,
-      department: input.department ?? null,
-      oldState: sanitizedOld,
-      newState: sanitizedNew,
-      reason: input.reason ? input.reason.trim() : null,
-      ipAddress: input.ipAddress ?? null,
-      userAgent: input.userAgent ? input.userAgent.slice(0, 500) : null,
-      previousHash,
-      entryHash,
-      createdAt,
+    const sanitizedOld = this.sanitizeState(input.oldState);
+    const sanitizedNew = this.sanitizeState(input.newState);
+    const normalizedAction = input.action.trim().toUpperCase();
+
+    return await this.enqueueChainWrite(async () => {
+      let lastError: unknown;
+
+      for (let attempt = 1; attempt <= MAX_AUDIT_CHAIN_RETRIES; attempt++) {
+        const [latestEntry, eventId] = await Promise.all([
+          AuditLogRepository.findLatestEntry(),
+          AuditLogRepository.getNextEventId(),
+        ]);
+
+        const previousHash = latestEntry?.entryHash || 'GENESIS';
+        const now = Date.now();
+        const latestTs =
+          latestEntry?.createdAt instanceof Date
+            ? latestEntry.createdAt.getTime()
+            : latestEntry?.createdAt
+              ? new Date(latestEntry.createdAt).getTime()
+              : 0;
+        const createdAt = new Date(latestTs > 0 && now <= latestTs ? latestTs + 1 : now);
+
+        const entryHash = this.computeEntryHash({
+          eventId,
+          actorId: canonicalActorId,
+          action: normalizedAction,
+          module: input.module,
+          targetEntityId: String(input.targetEntityId),
+          oldState: sanitizedOld,
+          newState: sanitizedNew,
+          previousHash,
+          createdAt: createdAt.toISOString(),
+        });
+
+        try {
+          const created = await AuditLogRepository.create({
+            eventId,
+            actorId: actorObjId,
+            actorSnapshot: {
+              fullName: input.actorSnapshot.fullName || 'System Actor',
+              email: input.actorSnapshot.email || 'system@axiscolleges.in',
+              role: input.actorSnapshot.role || 'super_admin',
+              department: input.actorSnapshot.department ?? null,
+            },
+            action: normalizedAction,
+            module: input.module,
+            severity: input.severity || 'info',
+            targetEntityType: input.targetEntityType,
+            targetEntityId: String(input.targetEntityId),
+            targetLabel: input.targetLabel ?? null,
+            department: input.department ?? null,
+            oldState: sanitizedOld,
+            newState: sanitizedNew,
+            reason: input.reason ? input.reason.trim() : null,
+            ipAddress: input.ipAddress ?? null,
+            userAgent: input.userAgent ? input.userAgent.slice(0, 500) : null,
+            previousHash,
+            entryHash,
+            createdAt,
+          });
+
+          return toAuditLogDTO(created);
+        } catch (err) {
+          lastError = err;
+          if (isDuplicateKeyError(err) && attempt < MAX_AUDIT_CHAIN_RETRIES) {
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      throw lastError;
     });
-
-    return toAuditLogDTO(created);
   }
 
   /**

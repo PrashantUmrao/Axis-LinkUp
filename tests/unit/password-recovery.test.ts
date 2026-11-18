@@ -57,7 +57,7 @@ describe('Phase 5.2.7 — 1. Forgot-Password Request & Account Enumeration Defen
     });
 
     assert.strictEqual(result.message, PasswordRecoveryService.GENERIC_REQUEST_NOTICE);
-    assert.strictEqual(result.email, 'karan.mehta@axiscolleges.in');
+    assert.strictEqual(result.email, undefined);
     assert.strictEqual(result.maskedEmail, 'ka***@axiscolleges.in');
     assert.strictEqual(capturedEmail, 'karan.mehta@axiscolleges.in');
     assert.strictEqual(capturedPurpose, 'password_recovery');
@@ -84,7 +84,8 @@ describe('Phase 5.2.7 — 1. Forgot-Password Request & Account Enumeration Defen
     });
 
     assert.strictEqual(queriedIdentifier, 'karan.mehta');
-    assert.strictEqual(result.email, 'karan.mehta@axiscolleges.in');
+    assert.strictEqual(result.email, undefined);
+    assert.strictEqual(result.maskedEmail, 'ka***@axiscolleges.in');
     assert.strictEqual(result.message, PasswordRecoveryService.GENERIC_REQUEST_NOTICE);
 
     mock.reset();
@@ -452,6 +453,11 @@ describe('Phase 5.2.7 — 4. Password Reset Execution, Clerk IAM & Session Revoc
 
     mock.method(PasswordRecoveryService, 'getClerkClient', async () => mockFailingClerkClient);
     mock.method(OtpRepository, 'findByProofTokenHash', async () => mockOtpDoc);
+    // P0 Batch 1 (AUD-C10): proof is now atomically consumed BEFORE Clerk mutation to close TOCTOU replay window
+    mock.method(OtpRepository, 'consumeVerificationProof', async () => ({
+      ...mockOtpDoc,
+      isProofConsumed: true,
+    }) as unknown as IOtpDocument);
     mock.method(UserRepository, 'findByEmail', async () => testUser);
 
     await assert.rejects(

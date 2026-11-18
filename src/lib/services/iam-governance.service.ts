@@ -14,6 +14,8 @@ import { UserRepository } from '@/lib/db/repositories/user.repository';
 import { DepartmentRepository } from '@/lib/db/repositories/department.repository';
 import { UserService } from '@/lib/services/user.service';
 import { AuditService } from '@/lib/services/audit.service';
+import { AblyBroker } from '@/lib/realtime/ably-broker';
+import { SessionService } from '@/lib/auth/session';
 import { toUserDTO } from '@/lib/db/models/user.model';
 import {
   PERMISSIONS,
@@ -323,6 +325,18 @@ export class IamGovernanceService {
       departmentId: updatedDTO.departmentId ?? null,
     });
 
+    // AUD-H12: Non-blockingly revoke active Clerk sessions when institutional role changes
+    if (input.role !== targetUser.role && targetUser.authProviderId) {
+      try {
+        await SessionService.revokeAllUserSessions(
+          targetUser.authProviderId,
+          `Institutional role changed from ${targetUser.role} to ${input.role}`
+        );
+      } catch {
+        // Non-blocking session revocation
+      }
+    }
+
     const newState = {
       role: updatedDTO.role,
       adminSubRole: updatedDTO.adminSubRole ?? null,
@@ -431,6 +445,26 @@ export class IamGovernanceService {
     await this.syncClerkMetadataNonBlocking(targetUser.authProviderId, {
       status: updatedDTO.status,
     });
+
+    // AUD-C10 & AUD-H12: Non-blockingly revoke active Ably realtime tokens and Clerk sessions
+    // when suspending or deactivating an account
+    if (input.status === 'suspended' || input.status === 'deactivated') {
+      try {
+        await AblyBroker.revokeUserTokens(targetUserId);
+      } catch {
+        // Non-blocking revocation
+      }
+      if (targetUser.authProviderId) {
+        try {
+          await SessionService.revokeAllUserSessions(
+            targetUser.authProviderId,
+            `Account status transitioned to ${input.status}`
+          );
+        } catch {
+          // Non-blocking revocation
+        }
+      }
+    }
 
     const newState = {
       status: updatedDTO.status,

@@ -7,7 +7,6 @@ import { successResponse, errorResponse } from '@/lib/api/api-response';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
 import { HTTP_STATUS } from '@/config/constants';
 import { logger } from '@/lib/logging/logger';
-import type { CreateUserInput, UserRole, UserStatus } from '@/types/user';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,8 +59,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 4. Ensure MongoDB connection
-  await connectToDatabase();
+  // 4. Ensure MongoDB connection (always enforced in production or when MONGODB_URI is configured)
+  if (process.env.MONGODB_URI || process.env.NODE_ENV === 'production') {
+    await connectToDatabase();
+  }
 
   const eventType = evt.type;
   logger.info(`[Clerk Webhook] Processing event: ${eventType} (${evt.data.id ?? 'unknown'})`);
@@ -70,8 +71,7 @@ export async function POST(req: NextRequest) {
     // 5. Handle event types
     switch (eventType) {
       case 'user.created': {
-        const { id, email_addresses, first_name, last_name, image_url, username, public_metadata } =
-          evt.data;
+        const { id, email_addresses, first_name, last_name, image_url, username } = evt.data;
         const primaryEmail = email_addresses?.[0]?.email_address;
         const clerkUsername = username ? username.toLowerCase().trim() : undefined;
         const isEmailVerified = email_addresses?.[0]?.verification?.status === 'verified';
@@ -87,9 +87,6 @@ export async function POST(req: NextRequest) {
 
         const fullName =
           `${first_name ?? ''} ${last_name ?? ''}`.trim() || 'Axis Collegiate Member';
-        const metadata = (public_metadata as Record<string, unknown>) ?? {};
-        const role = (metadata.role as UserRole) || 'student';
-        const status = (metadata.status as UserStatus) || 'active';
 
         // Check if pre-provisioned or existing user exists by authProviderId, email, or username
         let user = await UserRepository.findByAuthProviderId(id);
@@ -112,39 +109,20 @@ export async function POST(req: NextRequest) {
           logger.info(
             `[Clerk Webhook] Linked external auth identity to existing user: ${user.email} (${id})`
           );
-        } else if (role === 'super_admin') {
-          // Authoritative System Administrator Ingress from verified Clerk IAM backend claims
-          const createInput: CreateUserInput = {
-            authProviderId: id,
-            email: primaryEmail,
-            username: clerkUsername || 'admin01',
-            fullName: fullName || 'System Administrator',
-            role: 'super_admin',
-            adminSubRole: 'sys_admin',
-            status,
-            isEmailVerified: Boolean(isEmailVerified),
-            avatarUrl: image_url || undefined,
-            adminProfile: {
-              adminStaffId: 'SA-ADMIN01',
-              administrativeDomain: 'Central IT Administration',
-              assignedQueueScopes: ['all'],
-              emergencyOverridePermitted: true,
-            },
-          };
-          await UserRepository.create(createInput);
-          logger.info(
-            `[Clerk Webhook] Provisioned primary System Administrator: ${primaryEmail} (${id})`
-          );
         } else {
-          // Closed Registration Invariant: Public self-registration is permanently prohibited.
-          // All collegiate accounts must be pre-provisioned in MongoDB by authorized administrators.
+          // Closed Registration Invariant: Public self-registration & runtime admin bootstrap are prohibited.
+          // Acknowledge with HTTP 200 (ignored) to prevent infinite Svix webhook retry storms while creating no DB record.
           logger.warn(
-            `[Clerk Webhook] Blocked unauthorized self-registration attempt for ${primaryEmail} (${id}). Public signup is permanently disabled.`
+            `[Clerk Webhook] Ignored unprovisioned user.created event (${id}). Closed registration policy active.`
           );
-          return errorResponse(
-            'Self-service registration is disabled. Accounts must be provisioned by an authorized institutional administrator.',
-            ERROR_CODES.FORBIDDEN,
-            HTTP_STATUS.FORBIDDEN
+          return successResponse(
+            {
+              received: true,
+              ignored: true,
+              reason: 'closed_registration_unprovisioned',
+            },
+            'Unprovisioned user event ignored under closed registration policy',
+            HTTP_STATUS.OK
           );
         }
         break;
@@ -159,6 +137,25 @@ export async function POST(req: NextRequest) {
         const isEmailVerified = email_addresses?.[0]?.verification?.status === 'verified';
         const metadata = (public_metadata as Record<string, unknown>) ?? {};
 
+        const existingUser =
+          (await UserRepository.findByAuthProviderId(id)) ||
+          (primaryEmail ? await UserRepository.findByEmail(primaryEmail) : null);
+
+        if (!existingUser) {
+          logger.warn(
+            `[Clerk Webhook] Ignored unprovisioned user.updated event (${id}). Closed registration policy active.`
+          );
+          return successResponse(
+            {
+              received: true,
+              ignored: true,
+              reason: 'closed_registration_unprovisioned',
+            },
+            'Unprovisioned user event ignored under closed registration policy',
+            HTTP_STATUS.OK
+          );
+        }
+
         await UserRepository.syncExternalProfile(id, {
           fullName,
           avatarUrl: image_url || undefined,
@@ -168,12 +165,9 @@ export async function POST(req: NextRequest) {
         });
 
         // Synchronize account activation lifecycle status from Clerk metadata
-        if (metadata.status === 'active') {
-          const existingUser = await UserRepository.findByAuthProviderId(id);
-          if (existingUser && existingUser.status === 'pending_verification') {
-            await UserRepository.completeAccountActivation(existingUser._id.toString(), new Date());
-            logger.info(`[Clerk Webhook] Activated pending user via Clerk webhook: ${id}`);
-          }
+        if (metadata.status === 'active' && existingUser.status === 'pending_verification') {
+          await UserRepository.completeAccountActivation(existingUser._id.toString(), new Date());
+          logger.info(`[Clerk Webhook] Activated pending user via Clerk webhook: ${id}`);
         }
 
         logger.info(`[Clerk Webhook] Synchronized user profile changes: ${id}`);

@@ -4,15 +4,31 @@
  * and collision-resistant booking code generation (MOD-14 / Phase 5.9).
  */
 
-import { Types } from 'mongoose';
+import mongoose, { Types, type ClientSession } from 'mongoose';
 import connectToDatabase from '@/lib/db/mongodb';
 import { FacilityBookingModel } from '@/lib/db/models/facility-booking.model';
-import type { IFacilityBooking } from '@/types/facility';
+import type { FacilityBookingStatus, IFacilityBooking } from '@/types/facility';
 
 export interface BookingStatsAggregate {
   pendingBookings: number;
   approvedToday: number;
   totalBookings: number;
+}
+
+export interface BookingUpdateOptions {
+  expectedStatus?: FacilityBookingStatus;
+  session?: ClientSession;
+}
+
+function isStandaloneTransactionError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: number }).code;
+  const message = String((err as { message?: string }).message || '');
+  return (
+    code === 20 ||
+    message.includes('Transaction numbers are only allowed on a replica set') ||
+    message.includes('transactions are not supported')
+  );
 }
 
 export class FacilityBookingRepository {
@@ -23,21 +39,60 @@ export class FacilityBookingRepository {
   }
 
   /**
+   * Executes a booking mutation inside a MongoDB multi-document transaction when connected to a
+   * replica set, falling back safely to direct execution on standalone instances or mocked tests.
+   */
+  public static async runInTransaction<T>(
+    work: (session?: ClientSession) => Promise<T>
+  ): Promise<T> {
+    if (!process.env.MONGODB_URI || Number(mongoose.connection.readyState) !== 1) {
+      return await work(undefined);
+    }
+
+    let dbSession: ClientSession | null = null;
+    try {
+      dbSession = await mongoose.startSession();
+      let result!: T;
+      await dbSession.withTransaction(async () => {
+        result = await work(dbSession ?? undefined);
+      });
+      return result;
+    } catch (err) {
+      if (isStandaloneTransactionError(err)) {
+        return await work(undefined);
+      }
+      throw err;
+    } finally {
+      if (dbSession) {
+        await dbSession.endSession();
+      }
+    }
+  }
+
+  /**
    * Persists a new facility booking document.
    */
-  public static async create(data: Partial<IFacilityBooking>): Promise<IFacilityBooking> {
+  public static async create(
+    data: Partial<IFacilityBooking>,
+    session?: ClientSession
+  ): Promise<IFacilityBooking> {
     await this.ensureConnection();
     const doc = new FacilityBookingModel(data);
-    return await doc.save();
+    return await doc.save(session ? { session } : undefined);
   }
 
   /**
    * Retrieves a booking by ObjectId.
    */
-  public static async findById(id: string | Types.ObjectId): Promise<IFacilityBooking | null> {
+  public static async findById(
+    id: string | Types.ObjectId,
+    session?: ClientSession
+  ): Promise<IFacilityBooking | null> {
     await this.ensureConnection();
     if (!Types.ObjectId.isValid(String(id))) return null;
-    return await FacilityBookingModel.findById(id).exec();
+    const query = FacilityBookingModel.findById(id);
+    if (session) query.session(session);
+    return await query.exec();
   }
 
   /**
@@ -52,17 +107,32 @@ export class FacilityBookingRepository {
 
   /**
    * Updates an existing booking by ObjectId.
+   * When `options.expectedStatus` is provided, executes an atomic conditional filter
+   * (`{ _id, status: expectedStatus }`) to prevent TOCTOU concurrent approval races (AUD-C10).
    */
   public static async update(
     id: string | Types.ObjectId,
-    updates: Partial<IFacilityBooking>
+    updates: Partial<IFacilityBooking>,
+    options?: BookingUpdateOptions
   ): Promise<IFacilityBooking | null> {
     await this.ensureConnection();
     if (!Types.ObjectId.isValid(String(id))) return null;
-    return await FacilityBookingModel.findByIdAndUpdate(
-      id,
+
+    const filter: Record<string, unknown> = {
+      _id: new Types.ObjectId(String(id)),
+    };
+    if (options?.expectedStatus) {
+      filter.status = options.expectedStatus;
+    }
+
+    return await FacilityBookingModel.findOneAndUpdate(
+      filter,
       { $set: updates },
-      { new: true, runValidators: true }
+      {
+        new: true,
+        runValidators: true,
+        ...(options?.session ? { session: options.session } : {}),
+      }
     ).exec();
   }
 
@@ -75,7 +145,8 @@ export class FacilityBookingRepository {
     facilityId: string | Types.ObjectId,
     startTime: Date,
     endTime: Date,
-    excludeBookingId?: string | Types.ObjectId
+    excludeBookingId?: string | Types.ObjectId,
+    session?: ClientSession
   ): Promise<IFacilityBooking[]> {
     await this.ensureConnection();
     if (!Types.ObjectId.isValid(String(facilityId))) return [];
@@ -91,7 +162,9 @@ export class FacilityBookingRepository {
       query._id = { $ne: new Types.ObjectId(String(excludeBookingId)) };
     }
 
-    return await FacilityBookingModel.find(query).sort({ startTime: 1 }).exec();
+    const cursor = FacilityBookingModel.find(query).sort({ startTime: 1 });
+    if (session) cursor.session(session);
+    return await cursor.exec();
   }
 
   /**

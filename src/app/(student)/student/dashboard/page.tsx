@@ -12,7 +12,6 @@ import {
   StudentGrievancePortalCard,
   StudentNoticeFeed,
   StudentPollSection,
-  StudentAcademicCalendar,
   StudentFacultyMentors,
   StudentQuickActions,
   StudentRecentActivity,
@@ -105,7 +104,7 @@ export default async function StudentDashboardPage() {
           <StudentQuickActions />
         </div>
 
-        {/* Right Column (1 Col): Progress Ring, Mentors Rail, Calendar, Recent Activity */}
+        {/* Right Column (1 Col): Progress Ring, Mentors Rail, Recent Activity */}
         <div className="space-y-6">
           {/* Concentric Progress Gauge (Reference 2 Signature Ring) */}
           <Card variant="glass" className="border-glass-border space-y-4 border p-5">
@@ -156,9 +155,6 @@ export default async function StudentDashboardPage() {
 
           {/* Faculty Mentors & Advisors (Reference 2: Team Member Rail) */}
           <StudentFacultyMentors />
-
-          {/* Academic Calendar Widget */}
-          <StudentAcademicCalendar />
 
           {/* Recent Activity Timeline */}
           <StudentRecentActivity user={userDTO} />

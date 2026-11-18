@@ -46,13 +46,12 @@ async function main() {
   const password = args['password'];
   let authProviderId = args['auth-id'] || process.env.SUPER_ADMIN_AUTH_ID;
 
-  // Domain check - permits institutional domain or authorized primary administrator
-  const isPermittedAdminEmail =
-    email.endsWith('@axiscolleges.in') || email === 'hey.prashantumrao@gmail.com';
+  // Domain check - permits verified institutional domain only
+  const isPermittedAdminEmail = email.endsWith('@axiscolleges.in');
 
   if (!isPermittedAdminEmail) {
     console.error(
-      `[SECURITY ERROR] Rejected email: ${email}. Super Admin must belong to the @axiscolleges.in institutional domain or be the designated primary administrator.`
+      `[SECURITY ERROR] Rejected email: ${email}. Super Admin must belong to the @axiscolleges.in institutional domain.`
     );
     process.exit(1);
   }

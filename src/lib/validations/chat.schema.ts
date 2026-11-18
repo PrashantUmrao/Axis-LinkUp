@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { objectIdSchema } from './common-schemas';
+import { objectIdSchema, safeHttpUrlSchema } from './common-schemas';
 
 export const createDirectChatSchema = z.object({
   recipientId: objectIdSchema,
@@ -66,7 +66,7 @@ export const manageGroupMembersSchema = z.object({
 export const chatAttachmentSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(255),
-  url: z.string().url('Attachment must be a valid URL.'),
+  url: safeHttpUrlSchema,
   size: z.number().positive('File size must be positive.'),
   type: z.string().trim().min(1).max(100),
 });

@@ -15,7 +15,7 @@
  * - Enforces Zero-Trust collegiate access rules
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatSidebar } from './chat-sidebar';
 import { ChatConversationView } from './chat-conversation-view';
 import { ChatInfoPanel } from './chat-info-panel';
@@ -53,29 +53,41 @@ export function ChatLayout({
   const [messagesMap, setMessagesMap] = useState<Record<string, ChatMessage[]>>({});
   const [hasMoreMap, setHasMoreMap] = useState<Record<string, boolean>>({});
   const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
-  // 1. Mark conversation as read on server & update local unread count
-  const markAsRead = useCallback(async (convId: string) => {
+  // Deduplication guards to prevent redundant network & read-receipt loops
+  const loadedConversationsRef = useRef<Set<string>>(new Set());
+  const lastMarkedMessageByConvRef = useRef<Record<string, string>>({});
+
+  // 1. Mark conversation as read on server & update local unread count (deduplicated by latest message ID)
+  const markAsRead = useCallback(async (convId: string, latestMessageId?: string) => {
+    const marker = latestMessageId || '__initial__';
+    if (lastMarkedMessageByConvRef.current[convId] === marker) {
+      return;
+    }
+    lastMarkedMessageByConvRef.current[convId] = marker;
+
     try {
-      await fetch(`/api/v1/chat/conversations/${convId}/read`, { method: 'POST' });
-      setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, unreadCount: 0 } : c))
-      );
+      const res = await fetch(`/api/v1/chat/conversations/${convId}/read`, { method: 'POST' });
+      if (res.ok) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === convId ? { ...c, unreadCount: 0 } : c))
+        );
+      }
     } catch {
-      // Safe fallback
+      // Allow retry if network temporarily failed
+      delete lastMarkedMessageByConvRef.current[convId];
     }
   }, []);
 
-  // 2. Load conversation messages when activeConversationId changes
+  // 2. Load conversation messages when activeConversationId changes (never re-runs on messagesMap mutations)
   useEffect(() => {
     if (!activeConversationId) return;
     const convId = activeConversationId;
 
     let isMounted = true;
     async function fetchMessages(targetId: string) {
-      if (messagesMap[targetId]) {
-        // Already loaded in memory; just mark as read
-        markAsRead(targetId);
+      if (loadedConversationsRef.current.has(targetId)) {
         return;
       }
 
@@ -83,31 +95,42 @@ export function ChatLayout({
         const res = await fetch(
           `/api/v1/chat/conversations/${targetId}/messages?limit=50`
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (isMounted) {
+            setChatError('Unable to load conversation messages. Please retry.');
+          }
+          return;
+        }
 
         const json = await res.json();
         const data = json.data;
         if (isMounted && data) {
+          const loadedMessages: ChatMessage[] = data.messages || [];
+          loadedConversationsRef.current.add(targetId);
           setMessagesMap((prev) => ({
             ...prev,
-            [targetId]: data.messages || [],
+            [targetId]: loadedMessages,
           }));
           setHasMoreMap((prev) => ({
             ...prev,
             [targetId]: !!data.hasMore,
           }));
-          markAsRead(targetId);
+          const latestId = loadedMessages[loadedMessages.length - 1]?.id;
+          void markAsRead(targetId, latestId);
         }
       } catch {
-        // Safe fallback
+        if (isMounted) {
+          setChatError('Network error while loading conversation history.');
+        }
       }
     }
 
-    fetchMessages(convId);
+    setChatError(null);
+    void fetchMessages(convId);
     return () => {
       isMounted = false;
     };
-  }, [activeConversationId, markAsRead, messagesMap]);
+  }, [activeConversationId, markAsRead]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
   const activeMessages = activeConversationId ? messagesMap[activeConversationId] || [] : [];
@@ -171,9 +194,9 @@ export function ChatLayout({
         })
       );
 
-      // If viewing active conversation, immediately mark as read
+      // If viewing active conversation, immediately mark as read for this new message ID
       if (newMsg.conversationId === activeConversationId && !isOwn) {
-        markAsRead(newMsg.conversationId);
+        void markAsRead(newMsg.conversationId, newMsg.id);
       }
     },
     onMessageDeleted: ({ messageId, conversationId }) => {
@@ -257,6 +280,7 @@ export function ChatLayout({
       )
     );
 
+    setChatError(null);
     try {
       const res = await fetch(`/api/v1/chat/conversations/${activeConversationId}/messages`, {
         method: 'POST',
@@ -265,7 +289,10 @@ export function ChatLayout({
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to send message: HTTP ${res.status}`);
+        const errJson = await res.json().catch(() => null);
+        throw new Error(
+          errJson?.error?.message || errJson?.message || `Failed to send message (HTTP ${res.status})`
+        );
       }
 
       const json = await res.json();
@@ -292,14 +319,22 @@ export function ChatLayout({
           [activeConversationId]: deduped,
         };
       });
-    } catch {
-      // Retain optimistic with failure state or refresh
+    } catch (err) {
+      // Remove unconfirmed optimistic bubble and display visible error banner
+      setMessagesMap((prev) => ({
+        ...prev,
+        [activeConversationId]: (prev[activeConversationId] || []).filter((m) => m.id !== tempId),
+      }));
+      setChatError(
+        err instanceof Error ? err.message : 'Unable to send message. Please check your connection.'
+      );
     }
   };
 
   // 5. Delete Message Handler
   const handleDeleteMessage = async (messageId: string) => {
     if (!activeConversationId) return;
+    setChatError(null);
 
     // Optimistic soft delete
     setMessagesMap((prev) => ({
@@ -310,12 +345,25 @@ export function ChatLayout({
     }));
 
     try {
-      await fetch(
+      const res = await fetch(
         `/api/v1/chat/conversations/${activeConversationId}/messages/${messageId}`,
         { method: 'DELETE' }
       );
-    } catch {
-      // Revert if needed
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(
+          errJson?.error?.message || errJson?.message || 'Failed to delete message.'
+        );
+      }
+    } catch (err) {
+      // Revert optimistic deletion and surface visible error feedback
+      setMessagesMap((prev) => ({
+        ...prev,
+        [activeConversationId]: (prev[activeConversationId] || []).map((m) =>
+          m.id === messageId ? { ...m, isDeleted: false } : m
+        ),
+      }));
+      setChatError(err instanceof Error ? err.message : 'Unable to delete message. Please retry.');
     }
   };
 
@@ -420,12 +468,14 @@ export function ChatLayout({
           currentUserId={currentUserId}
           isInfoPanelOpen={isInfoPanelOpen}
           ablyStatus={ablyStatus}
+          errorBanner={chatError}
+          onDismissError={() => setChatError(null)}
         />
       </div>
 
-      {/* 3. Optional Right Information Panel */}
+      {/* 3. Optional Right Information Panel (slide-over overlay on mobile, docked on md+) */}
       {isInfoPanelOpen && activeConversation && (
-        <div className="hidden h-full shrink-0 md:block">
+        <div className="bg-background/95 absolute inset-y-0 right-0 z-30 h-full w-full max-w-xs shrink-0 shadow-2xl backdrop-blur-xl md:static md:z-auto md:w-auto md:max-w-none md:bg-transparent md:shadow-none">
           <ChatInfoPanel
             conversation={activeConversation}
             onClose={() => setIsInfoPanelOpen(false)}

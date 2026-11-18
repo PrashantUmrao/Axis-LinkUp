@@ -6,8 +6,9 @@
  * Locks complainant identity to authenticated user profile to prevent impersonation.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Card, CardHeader, CardTitle, Button, Input, Textarea, Badge } from '@/components/ui';
+import { FileUploader } from '@/components/assignments/file-uploader';
 import {
   Scale,
   Landmark,
@@ -16,11 +17,10 @@ import {
   Paperclip,
   AlertCircle,
   User,
-  X,
-  FileCheck,
   Flame,
 } from 'lucide-react';
 import type { UserDTO } from '@/types/user';
+import type { AssignmentAttachment } from '@/types/assignment';
 import type {
   ComplaintCategory,
   ComplaintPriority,
@@ -63,43 +63,12 @@ export function ComplaintComposeForm({
   const [subject, setSubject] = useState('');
   const [narrative, setNarrative] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const [attachedFile, setAttachedFile] = useState<{
-    name: string;
-    url: string;
-    sizeBytes: number;
-    mimeType: string;
-  } | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<AssignmentAttachment[]>([]);
 
   const studentRoll = user.studentProfile?.rollNumber || 'Enrolled Student';
   const departmentName = user.studentProfile?.program || 'Collegiate Department';
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 25 * 1024 * 1024) {
-      setErrorMessage('Attachment cannot exceed 25MB statutory limit.');
-      return;
-    }
-
-    // In environments without client-direct Cloudinary presigned upload,
-    // construct attachment metadata payload with standard object reference
-    const safeUrl = `https://storage.axislinkup.internal/evidence/${Date.now()}_${encodeURIComponent(
-      file.name
-    )}`;
-
-    setAttachedFile({
-      name: file.name,
-      url: safeUrl,
-      sizeBytes: file.size,
-      mimeType: file.type || 'application/octet-stream',
-    });
-    setErrorMessage(null);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,7 +91,16 @@ export function ComplaintComposeForm({
     setErrorMessage(null);
 
     try {
-      const attachmentsPayload = attachedFile ? [attachedFile] : undefined;
+      const attachmentsPayload =
+        attachments.length > 0
+          ? attachments.map((att) => ({
+              name: att.name,
+              url: att.url,
+              sizeBytes: att.sizeBytes,
+              mimeType: att.mimeType,
+              ...(att.publicId ? { publicId: att.publicId } : {}),
+            }))
+          : undefined;
 
       const res = await fetch('/api/v1/complaints', {
         method: 'POST',
@@ -336,59 +314,20 @@ export function ComplaintComposeForm({
           />
         </div>
 
-        {/* Supporting Document / Attachment Trigger */}
-        <div className="bg-card/40 border-glass-border flex flex-col justify-between gap-3 rounded-xl border p-3 text-xs sm:flex-row sm:items-center">
-          <div className="text-muted-foreground flex items-center gap-2">
-            <Paperclip className="text-primary size-4 shrink-0" />
-            <span>
-              {attachedFile ? (
-                <span className="flex items-center gap-1.5">
-                  <FileCheck className="size-3.5 text-emerald-500" />
-                  <strong className="text-foreground">{attachedFile.name}</strong>
-                  <span className="text-muted-foreground font-mono text-[10px]">
-                    ({(attachedFile.sizeBytes / 1024).toFixed(1)} KB)
-                  </span>
-                </span>
-              ) : (
-                'Attach supporting evidence, medical slips, or clearance proofs (PDF, JPG, PNG).'
-              )}
-            </span>
+        {/* Supporting Document / Signed File Uploader (AUD-H14) */}
+        <div className="space-y-2">
+          <div className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+            <Paperclip className="text-primary size-3.5 shrink-0" />
+            <span>Supporting Evidence &amp; Clearance Proofs (Optional, Max 5 files)</span>
           </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept=".pdf,.png,.jpg,.jpeg,.webp"
-              className="hidden"
-            />
-            {!attachedFile ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="border-glass-border h-7 text-xs"
-              >
-                Attach Proof
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setAttachedFile(null);
-                  if (fileInputRef.current) fileInputRef.current.value = '';
-                }}
-                className="text-destructive h-7 gap-1 text-xs"
-              >
-                <X className="size-3" />
-                Remove
-              </Button>
-            )}
-          </div>
+          <FileUploader
+            scope="complaints"
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            maxFiles={5}
+            disabled={isSubmitting}
+            onUploadingChange={setIsUploading}
+          />
         </div>
 
         {/* Footer Actions */}
@@ -413,7 +352,7 @@ export function ComplaintComposeForm({
               type="submit"
               variant="pill-primary"
               size="sm"
-              disabled={isSubmitting || !subject.trim() || !narrative.trim()}
+              disabled={isSubmitting || isUploading || !subject.trim() || !narrative.trim()}
               className="gap-1.5 text-xs shadow-xs"
             >
               <Send className="size-3.5" />

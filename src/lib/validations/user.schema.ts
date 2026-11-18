@@ -10,6 +10,7 @@ import {
   adminSubRoleSchema,
   objectIdSchema,
   studentRollNumberSchema,
+  safeHttpUrlSchema,
 } from './common-schemas';
 import { USER_ROLES, FACULTY_DESIGNATIONS } from '@/config/constants';
 
@@ -168,7 +169,7 @@ export const createUserSchema = z.object({
       'Invalid phone number format. Use E.164 standard (e.g. +919876543210)'
     )
     .optional(),
-  avatarUrl: z.string().trim().url('Invalid avatar URL').optional(),
+  avatarUrl: safeHttpUrlSchema.optional(),
   isProfileComplete: z.boolean().default(false),
   studentProfile: studentProfileSchema.optional(),
   facultyProfile: facultyProfileSchema.optional(),
@@ -194,7 +195,7 @@ export const updateUserProfileSchema = z.object({
     .trim()
     .regex(/^\+?[1-9]\d{9,14}$/, 'Invalid phone number format')
     .optional(),
-  avatarUrl: z.string().trim().url('Invalid avatar URL').optional(),
+  avatarUrl: safeHttpUrlSchema.optional(),
   facultyProfile: z
     .object({
       cabinRoom: z.string().trim().max(50).optional(),

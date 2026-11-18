@@ -14,7 +14,6 @@ import {
   FacultyStudentOverview,
   FacultyNoticeSection,
   FacultyPollSection,
-  FacultyAcademicCalendar,
   FacultyQuickActions,
   FacultyRecentActivity,
 } from './components';
@@ -113,7 +112,7 @@ export default async function FacultyDashboardPage() {
           <FacultyQuickActions />
         </div>
 
-        {/* Right Column (1 Col): Syllabus Gauge, Student Overview, Calendar, Activity */}
+        {/* Right Column (1 Col): Syllabus Gauge, Student Overview, Activity */}
         <div className="space-y-6">
           {/* Concentric Progress Gauge Card (Reference 2 Signature Ring) */}
           <Card variant="glass" className="border-glass-border space-y-4 border p-5">
@@ -166,9 +165,6 @@ export default async function FacultyDashboardPage() {
 
           {/* Enrolled Students & Cohort Overview */}
           <FacultyStudentOverview />
-
-          {/* Academic Calendar & Teaching Schedule */}
-          <FacultyAcademicCalendar />
 
           {/* Recent Telemetry & Security Activity */}
           <FacultyRecentActivity user={userDTO} />

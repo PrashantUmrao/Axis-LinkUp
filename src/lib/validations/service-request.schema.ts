@@ -4,12 +4,13 @@
  */
 
 import { z } from 'zod';
+import { safeHttpUrlSchema } from './common-schemas';
 
 export const MAX_REQUEST_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export const requestAttachmentInputSchema = z.object({
   name: z.string().trim().min(1, 'Attachment name is required').max(200),
-  url: z.string().trim().url('Invalid attachment URL format'),
+  url: safeHttpUrlSchema,
   fileType: z.string().trim().default('application/octet-stream'),
   size: z
     .number()
@@ -158,7 +159,7 @@ export const reviewServiceRequestSchema = z
     fulfillmentDocument: z
       .object({
         name: z.string().trim().min(1, 'Document name is required').max(200),
-        url: z.string().trim().url('Invalid document URL format'),
+        url: safeHttpUrlSchema,
         referenceId: z.string().trim().max(100).optional(),
       })
       .optional()
@@ -177,6 +178,14 @@ export const reviewServiceRequestSchema = z
     }
   });
 
+export const SERVICE_REQUEST_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'priority',
+  'status',
+  'ticketNumber',
+] as const;
+
 export const serviceRequestQuerySchema = z.object({
   status: z
     .enum(['submitted', 'under_review', 'action_required', 'approved', 'rejected', 'fulfilled'])
@@ -186,10 +195,10 @@ export const serviceRequestQuerySchema = z.object({
     .optional(),
   priority: z.enum(['standard', 'urgent']).optional(),
   department: z.string().trim().optional(),
-  search: z.string().trim().optional(),
+  search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  sortBy: z.string().trim().default('createdAt'),
+  sortBy: z.enum(SERVICE_REQUEST_SORT_FIELDS).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 

@@ -9,7 +9,7 @@
  * - Receipt analytics ledger for authors, HODs, Director, and SysAdmin.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,9 @@ import {
   Eye,
   CheckCheck,
   ShieldAlert,
+  Send,
+  Archive,
+  Loader2,
 } from 'lucide-react';
 import type { NoticeDTO } from '@/types/notice';
 import type { NoticeReceiptStatsDTO } from '@/types/notice-receipt';
@@ -54,9 +57,13 @@ export function NoticeDetailDialog({
 }: NoticeDetailDialogProps) {
   const [isAcknowledging, setIsAcknowledging] = useState(false);
   const [ackError, setAckError] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [showReceiptsTab, setShowReceiptsTab] = useState(false);
   const [receiptStats, setReceiptStats] = useState<NoticeReceiptStatsDTO | null>(null);
   const [isLoadingReceipts, setIsLoadingReceipts] = useState(false);
+  const viewedNoticeIdsRef = useRef<Set<string>>(new Set());
 
   const isAuthor =
     currentUserId &&
@@ -67,6 +74,30 @@ export function NoticeDetailDialog({
     currentUserRole === 'super_admin' ||
     currentUserRole === 'admin' ||
     Boolean(isAuthor);
+
+  // Non-blocking read receipt recording when opening a published notice
+  useEffect(() => {
+    if (!isOpen || !notice || notice.status !== 'published') return;
+    if (viewedNoticeIdsRef.current.has(notice.id)) return;
+    viewedNoticeIdsRef.current.add(notice.id);
+
+    fetch(`/api/v1/notices/${notice.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (json?.success && json.data && onNoticeUpdated) {
+          onNoticeUpdated(json.data);
+        }
+      })
+      .catch(() => {
+        // Non-blocking read receipt
+      });
+  }, [isOpen, notice, onNoticeUpdated]);
+
+  // Reset transient error/tab state when switching notices
+  useEffect(() => {
+    setLifecycleError(null);
+    setAckError(null);
+  }, [notice?.id, isOpen]);
 
   // Auto-fetch receipt analytics if privileged and requested
   useEffect(() => {
@@ -112,6 +143,50 @@ export function NoticeDetailDialog({
       setAckError('Network error while recording statutory acknowledgment.');
     } finally {
       setIsAcknowledging(false);
+    }
+  };
+
+  const handlePublishDraft = async () => {
+    setIsPublishing(true);
+    setLifecycleError(null);
+    try {
+      const res = await fetch(`/api/v1/notices/${notice.id}/publish`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setLifecycleError(json.error?.message || json.message || 'Failed to publish draft notice.');
+        return;
+      }
+      if (onNoticeUpdated && json.data) {
+        onNoticeUpdated(json.data);
+      }
+    } catch {
+      setLifecycleError('Network error while publishing notice.');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleArchiveNotice = async () => {
+    setIsArchiving(true);
+    setLifecycleError(null);
+    try {
+      const res = await fetch(`/api/v1/notices/${notice.id}/archive`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setLifecycleError(json.error?.message || json.message || 'Failed to archive notice.');
+        return;
+      }
+      if (onNoticeUpdated && json.data) {
+        onNoticeUpdated(json.data);
+      }
+    } catch {
+      setLifecycleError('Network error while archiving notice.');
+    } finally {
+      setIsArchiving(false);
     }
   };
 
@@ -162,11 +237,12 @@ export function NoticeDetailDialog({
             </div>
 
             <span className="text-xs text-muted-foreground font-mono">
-              {new Date(notice.publishedAt || notice.createdAt).toLocaleDateString('en-IN', {
+              {new Intl.DateTimeFormat('en-IN', {
                 day: 'numeric',
                 month: 'short',
                 year: 'numeric',
-              })}
+                timeZone: 'Asia/Kolkata',
+              }).format(new Date(notice.publishedAt || notice.createdAt))}
             </span>
           </div>
 
@@ -363,15 +439,56 @@ export function NoticeDetailDialog({
           </div>
         )}
 
-        <DialogFooter className="border-t border-border/40 pt-4 flex items-center justify-between sm:justify-between">
+        {lifecycleError && (
+          <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-xs font-medium">
+            {lifecycleError}
+          </div>
+        )}
+
+        <DialogFooter className="border-t border-border/40 pt-4 flex flex-wrap items-center justify-between gap-2 sm:justify-between">
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Megaphone className="size-3.5 text-primary" />
             <span>Collegiate Official Bulletin • AITM Kanpur</span>
           </div>
 
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Close
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isPrivileged && notice.status === 'draft' && (
+              <Button
+                size="sm"
+                onClick={handlePublishDraft}
+                disabled={isPublishing || isArchiving}
+                className="gap-1.5 text-xs"
+              >
+                {isPublishing ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Send className="size-3.5" />
+                )}
+                {isPublishing ? 'Publishing...' : 'Publish Draft'}
+              </Button>
+            )}
+
+            {isPrivileged && notice.status === 'published' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleArchiveNotice}
+                disabled={isArchiving || isPublishing}
+                className="gap-1.5 text-xs"
+              >
+                {isArchiving ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Archive className="size-3.5" />
+                )}
+                {isArchiving ? 'Archiving...' : 'Archive'}
+              </Button>
+            )}
+
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,6 +1,9 @@
 import * as Ably from 'ably';
 import { logger } from '@/lib/logging/logger';
 
+export const ABLY_TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes (AUD-C10)
+export const ABLY_REVOKE_TIMEOUT_MS = 10_000;
+
 export interface AblyPublishPayload {
   name: string;
   data: unknown;
@@ -9,6 +12,12 @@ export interface AblyPublishPayload {
 export interface AblyPublishResult {
   published: boolean;
   channel: string;
+  error?: string;
+}
+
+export interface AblyRevokeResult {
+  revoked: boolean;
+  userId: string;
   error?: string;
 }
 
@@ -95,6 +104,61 @@ export class AblyBroker {
         error: errorMessage,
       });
       return { published: false, channel, error: errorMessage };
+    }
+  }
+
+  /**
+   * Non-blockingly revokes all active Ably realtime tokens for a given userId (clientId)
+   * via the Ably REST Token Revocation API (AUD-C10).
+   * Invoked when removing a user from a group chat or suspending/deactivating an account.
+   */
+  public static async revokeUserTokens(userId: string): Promise<AblyRevokeResult> {
+    const apiKey = process.env.ABLY_API_KEY?.trim();
+    if (!apiKey) {
+      logger.debug(
+        `[AblyBroker] ABLY_API_KEY not configured. Skipping token revocation for userId=${userId}.`
+      );
+      return { revoked: false, userId };
+    }
+
+    const colonIndex = apiKey.indexOf(':');
+    if (colonIndex <= 0) {
+      logger.warn('[AblyBroker] Invalid ABLY_API_KEY format; cannot revoke user tokens.');
+      return { revoked: false, userId, error: 'Invalid ABLY_API_KEY format' };
+    }
+
+    const keyName = apiKey.slice(0, colonIndex);
+    const basicAuth = Buffer.from(apiKey).toString('base64');
+    const revokeUrl = `https://rest.ably.io/keys/${encodeURIComponent(keyName)}/revokeTokens`;
+
+    try {
+      const response = await fetch(revokeUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          targets: [`clientId:${userId}`],
+          issuedBefore: Date.now(),
+        }),
+        signal: AbortSignal.timeout(ABLY_REVOKE_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const errMsg = `Ably token revocation returned HTTP ${response.status}`;
+        logger.warn(`[AblyBroker] ${errMsg} for userId=${userId}`);
+        return { revoked: false, userId, error: errMsg };
+      }
+
+      logger.info(`[AblyBroker] Revoked active Ably realtime tokens for userId=${userId}`);
+      return { revoked: true, userId };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn(`[AblyBroker] Failed to revoke Ably tokens for userId=${userId}`, {
+        error: errorMessage,
+      });
+      return { revoked: false, userId, error: errorMessage };
     }
   }
 }

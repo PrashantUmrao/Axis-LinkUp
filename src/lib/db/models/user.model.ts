@@ -288,11 +288,31 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-// Indexes adhering strictly to DOC-DATA-007 and Phase 5.2.1 Specifications
+// Indexes adhering strictly to DOC-DATA-007, Phase 5.2.1, and AUD-C07 Partial Unique Hardening
 UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ username: 1 }, { unique: true, sparse: true });
-UserSchema.index({ authProviderId: 1 }, { unique: true, sparse: true });
-UserSchema.index({ 'studentProfile.rollNumber': 1 }, { unique: true, sparse: true });
+UserSchema.index(
+  { username: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { username: { $type: 'string', $gt: '' } },
+  }
+);
+UserSchema.index(
+  { authProviderId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { authProviderId: { $type: 'string', $gt: '' } },
+  }
+);
+UserSchema.index(
+  { 'studentProfile.rollNumber': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'studentProfile.rollNumber': { $type: 'string', $gt: '' },
+    },
+  }
+);
 UserSchema.index(
   { 'studentProfile.enrollmentNumber': 1 },
   {
@@ -303,9 +323,25 @@ UserSchema.index(
   }
 );
 UserSchema.index({ 'studentProfile.program': 1, 'studentProfile.batchYear': 1 });
-UserSchema.index({ 'facultyProfile.employeeId': 1 }, { unique: true, sparse: true });
+UserSchema.index(
+  { 'facultyProfile.employeeId': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'facultyProfile.employeeId': { $type: 'string', $gt: '' },
+    },
+  }
+);
 UserSchema.index({ 'facultyProfile.sharePhoneWithStudents': 1 });
-UserSchema.index({ 'adminProfile.adminStaffId': 1 }, { unique: true, sparse: true });
+UserSchema.index(
+  { 'adminProfile.adminStaffId': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'adminProfile.adminStaffId': { $type: 'string', $gt: '' },
+    },
+  }
+);
 UserSchema.index({ activationTokenHash: 1 }, { sparse: true });
 UserSchema.index({ departmentId: 1, role: 1, status: 1 });
 UserSchema.index({ role: 1, adminSubRole: 1, status: 1 });

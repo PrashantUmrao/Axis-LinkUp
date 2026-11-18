@@ -11,13 +11,13 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { ThemeToggle } from '@/components/theme';
 import { UserProfileMenu } from './user-menu';
 import { TopbarNotifications } from './topbar-notifications';
 import { getBreadcrumbsForPath } from '@/config/navigation';
 import type { UserRole } from '@/types/user';
-import { Menu, PanelLeftClose, PanelLeft, Search, ChevronRight } from 'lucide-react';
+import { Menu, PanelLeftClose, PanelLeft, ChevronRight } from 'lucide-react';
 
 interface TopbarProps {
   user: {
@@ -110,32 +110,8 @@ export function Topbar({
         </nav>
       </div>
 
-      {/* Right: Search, Notifications, Theme, User Menu */}
+      {/* Right: Notifications, Theme, User Menu */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Non-functional Search Trigger Placeholder */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className="glass-panel text-muted-foreground hover:border-glass-border-hover hidden h-8.5 w-60 cursor-not-allowed items-center justify-between rounded-full border px-3.5 text-xs transition-all select-none md:flex"
-              aria-disabled="true"
-            >
-              <div className="flex items-center gap-2">
-                <Search className="size-3.5" />
-                <span>Search campus...</span>
-              </div>
-              <kbd className="bg-background/80 text-muted-foreground/80 border-border/60 rounded border px-1.5 py-0.5 font-mono text-[10px] shadow-xs">
-                ⌘K
-              </kbd>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            <p className="font-semibold">Global Search</p>
-            <p className="text-muted-foreground text-[10px]">
-              Campus-wide search is planned for Phase 5 implementation.
-            </p>
-          </TooltipContent>
-        </Tooltip>
-
         {/* Real-time Campus Notices & Notifications */}
         <TopbarNotifications user={user} />
 

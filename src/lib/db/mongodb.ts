@@ -7,6 +7,7 @@ import mongoose, { type Mongoose } from 'mongoose';
 interface MongooseCache {
   conn: Mongoose | null;
   promise: Promise<Mongoose> | null;
+  disconnectListenerAttached?: boolean;
 }
 
 declare global {
@@ -16,6 +17,7 @@ declare global {
 const cached: MongooseCache = global.mongooseCache ?? {
   conn: null,
   promise: null,
+  disconnectListenerAttached: false,
 };
 
 if (!global.mongooseCache) {
@@ -45,8 +47,23 @@ function getValidatedMongoUri(): string {
 }
 
 /**
+ * Attaches a one-time Mongoose `disconnected` event listener so transient
+ * network drops immediately clear the singleton cache and trigger clean reconnection (AUD-H15).
+ */
+function ensureDisconnectListener(conn: mongoose.Connection): void {
+  if (cached.disconnectListenerAttached) return;
+  cached.disconnectListenerAttached = true;
+
+  conn.on('disconnected', () => {
+    cached.conn = null;
+    cached.promise = null;
+  });
+}
+
+/**
  * Reusable, singleton connection utility for MongoDB Atlas via Mongoose.
- * Reuses the existing connection during hot-reloads and concurrent requests.
+ * Reuses the existing connection during hot-reloads and concurrent requests,
+ * and automatically clears stale cache handles if readyState drops from 1 (AUD-H15).
  *
  * @returns {Promise<Mongoose>} The active Mongoose instance.
  */
@@ -54,6 +71,13 @@ export async function connectToDatabase(): Promise<Mongoose> {
   // If an active connection exists, return it immediately
   if (cached.conn && cached.conn.connection.readyState === 1) {
     return cached.conn;
+  }
+
+  // AUD-H15: If a cached connection exists but dropped (readyState !== 1),
+  // clear BOTH cached.conn and cached.promise so Mongoose reconnects cleanly.
+  if (cached.conn && cached.conn.connection.readyState !== 1) {
+    cached.conn = null;
+    cached.promise = null;
   }
 
   // If a connection promise is currently resolving, await it
@@ -70,10 +94,12 @@ export async function connectToDatabase(): Promise<Mongoose> {
     cached.promise = mongoose
       .connect(uri, opts)
       .then((mongooseInstance) => {
+        ensureDisconnectListener(mongooseInstance.connection);
         return mongooseInstance;
       })
       .catch((err: unknown) => {
         // Reset cached promise so subsequent attempts can retry
+        cached.conn = null;
         cached.promise = null;
         // Log safe message without leaking credentials or full URI
         const message = err instanceof Error ? err.message : 'Unknown database error';
@@ -86,9 +112,18 @@ export async function connectToDatabase(): Promise<Mongoose> {
 
   try {
     cached.conn = await cached.promise;
+    if (cached.conn.connection.readyState !== 1) {
+      cached.conn = null;
+      cached.promise = null;
+    }
   } catch (error) {
+    cached.conn = null;
     cached.promise = null;
     throw error;
+  }
+
+  if (!cached.conn) {
+    throw new Error('Database connection is not ready. Please retry.');
   }
 
   return cached.conn;

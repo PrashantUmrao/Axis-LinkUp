@@ -18,6 +18,7 @@ import {
   Label,
   Textarea,
 } from '@/components/ui';
+import { FileUploader } from '@/components/assignments/file-uploader';
 import {
   FileText,
   Calendar,
@@ -26,10 +27,8 @@ import {
   HelpCircle,
   AlertCircle,
   Loader2,
-  Paperclip,
-  X,
-  UploadCloud,
 } from 'lucide-react';
+import type { AssignmentAttachment } from '@/types/assignment';
 import type {
   ServiceRequestCategory,
   ServiceRequestPriority,
@@ -113,61 +112,13 @@ export function StudentRequestComposeModal({
   // General Inquiry state
   const [queryDetails, setQueryDetails] = useState('');
 
-  // Attachments state
-  const [attachments, setAttachments] = useState<IRequestAttachment[]>([]);
+  // Attachments state (managed via signed FileUploader — AUD-H14)
+  const [uploadedFiles, setUploadedFiles] = useState<AssignmentAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // File upload handler
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    if (attachments.length + files.length > 5) {
-      setError('You can attach a maximum of 5 files.');
-      return;
-    }
-
-    setIsUploading(true);
-    setError(null);
-
-    try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (!file) continue;
-
-        if (file.size > 25 * 1024 * 1024) {
-          setError(`File "${file.name}" exceeds the statutory 25MB limit.`);
-          setIsUploading(false);
-          return;
-        }
-
-        // Mock upload or direct signed URL
-        const simulatedUrl = URL.createObjectURL(file);
-        const newAttachment: IRequestAttachment = {
-          name: file.name,
-          url: simulatedUrl,
-          fileType: file.type || 'application/octet-stream',
-          size: file.size,
-          publicId: `req_mock_${Date.now()}_${i}`,
-        };
-
-        setAttachments((prev) => [...prev, newAttachment]);
-      }
-    } catch {
-      setError('Failed to attach document. Please try again.');
-    } finally {
-      setIsUploading(false);
-      e.target.value = '';
-    }
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, idx) => idx !== index));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,6 +195,14 @@ export function StudentRequestComposeModal({
     setIsSubmitting(true);
 
     try {
+      const attachments: IRequestAttachment[] = uploadedFiles.map((att) => ({
+        name: att.name,
+        url: att.url,
+        fileType: att.mimeType || 'application/octet-stream',
+        size: att.sizeBytes,
+        ...(att.publicId ? { publicId: att.publicId } : {}),
+      }));
+
       const payload = {
         category,
         priority,
@@ -551,62 +510,25 @@ export function StudentRequestComposeModal({
             </div>
           )}
 
-          {/* Attachments Section */}
+          {/* Attachments Section (Signed FileUploader — AUD-H14) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Supporting Evidence / Attachments (Max 5, up to 25MB each)
               </Label>
               <span className="text-xs text-muted-foreground">
-                {attachments.length}/5 files
+                {uploadedFiles.length}/5 files
               </span>
             </div>
 
-            {/* Attached files list */}
-            {attachments.length > 0 && (
-              <div className="space-y-1.5">
-                {attachments.map((att, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-md border border-border/80 bg-muted/30 px-3 py-1.5 text-xs"
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate font-medium">{att.name}</span>
-                      <span className="text-muted-foreground">
-                        ({(att.size / 1024).toFixed(0)} KB)
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(idx)}
-                      className="text-muted-foreground hover:text-rose-500"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {attachments.length < 5 && (
-              <label className="flex items-center justify-center gap-2 p-3 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-muted/30 cursor-pointer text-xs text-muted-foreground transition-colors">
-                {isUploading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                ) : (
-                  <UploadCloud className="h-4 w-4 text-primary" />
-                )}
-                <span>Click to attach documents (PDF, DOCX, JPEG, PNG)</span>
-                <input
-                  type="file"
-                  multiple
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  disabled={isUploading}
-                />
-              </label>
-            )}
+            <FileUploader
+              scope="requests"
+              attachments={uploadedFiles}
+              onAttachmentsChange={setUploadedFiles}
+              maxFiles={5}
+              disabled={isSubmitting}
+              onUploadingChange={setIsUploading}
+            />
           </div>
 
           <DialogFooter className="gap-2 pt-2">

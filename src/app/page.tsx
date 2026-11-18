@@ -7,7 +7,7 @@ import {
   ArrowRight,
   Bell,
   MessageSquare,
-  Calendar,
+  Inbox,
   FileText,
   BarChart3,
   Scale,
@@ -65,13 +65,15 @@ export default function HomePage() {
             <a href="#about" className="hover:text-foreground transition-colors">
               Governance &amp; Policy
             </a>
-            <Link
-              href="/ui-preview"
-              className="hover:text-primary flex items-center gap-1 transition-colors"
-            >
-              <Layers className="size-3.5" />
-              <span>UI Showcase</span>
-            </Link>
+            {process.env.NODE_ENV !== 'production' && (
+              <Link
+                href="/ui-preview"
+                className="hover:text-primary flex items-center gap-1 transition-colors"
+              >
+                <Layers className="size-3.5" />
+                <span>UI Showcase</span>
+              </Link>
+            )}
           </nav>
 
           {/* Right Header Actions */}
@@ -208,14 +210,14 @@ export default function HomePage() {
           {/* Capability 3 */}
           <div className="glass-card border-glass-border space-y-3 border p-6 text-left">
             <div className="bg-primary/10 border-primary/20 text-primary flex size-10 items-center justify-center rounded-xl border">
-              <Calendar className="size-5" />
+              <Inbox className="size-5" />
             </div>
             <h3 className="font-heading text-foreground text-base font-bold">
-              Academic Timetable &amp; Schedule
+              Service Requests &amp; Facility Bookings
             </h3>
             <p className="text-muted-foreground text-xs leading-relaxed">
-              Real-time daily lecture schedules, laboratory batches, classroom assignments, and
-              semester examination milestones.
+              Digital workflows for bonafide certificates, leave clearances, laboratory reservations,
+              and conflict-free auditorium scheduling.
             </p>
           </div>
 
@@ -306,7 +308,7 @@ export default function HomePage() {
       <footer className="border-border/40 text-muted-foreground mt-auto border-t py-8 text-center text-xs">
         <div className="mx-auto max-w-7xl space-y-2 px-4 sm:px-6">
           <p>
-            © {new Date().getFullYear()} Axis Institute of Technology &amp; Management (AITM). All
+            © {new Date().getUTCFullYear()} Axis Institute of Technology &amp; Management (AITM). All
             rights reserved.
           </p>
           <p className="text-muted-foreground/75 text-[11px]">

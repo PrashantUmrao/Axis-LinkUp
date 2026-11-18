@@ -4,17 +4,28 @@ import { successResponse } from '@/lib/api/api-response';
 import { HTTP_STATUS } from '@/config/constants';
 import { handleApiError } from '@/lib/api/api-error-handler';
 import { passwordResetSchema } from '@/lib/validations/password-recovery.schema';
+import {
+  checkRateLimit,
+  createRateLimitErrorResponse,
+  getClientIp,
+} from '@/lib/security/rate-limiter';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/v1/auth/password-recovery/reset
  * Completes the password recovery workflow.
- * Validates cryptographic verification proof, enforces single-use replay defense,
- * updates password via Clerk backend SDK, and revokes active sessions.
+ * Enforces sliding-window IP rate limiting (5/60s), atomic replay defense, and session revocation.
  */
 export async function POST(req: NextRequest) {
   try {
+    const rateLimit = checkRateLimit(`auth:password-recovery-reset:${getClientIp(req)}`, {
+      maxRequests: 5,
+      windowMs: 60_000,
+    });
+    if (!rateLimit.allowed) {
+      return createRateLimitErrorResponse(rateLimit);
+    }
     let body: unknown;
     try {
       body = await req.json();

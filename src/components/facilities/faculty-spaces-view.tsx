@@ -7,7 +7,7 @@
  * - My Reservations (status badges, review remarks, and cancel action)
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Badge, Button, EmptyState, Input } from '@/components/ui';
 import {
   Building2,
@@ -51,6 +51,11 @@ export function FacultySpacesView({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, []);
 
   const refreshData = useCallback(async () => {
     try {
@@ -224,7 +229,8 @@ export function FacultySpacesView({
             bookings.map((booking) => {
               const isCancellable =
                 (booking.status === 'pending' || booking.status === 'approved') &&
-                new Date(booking.endTime).getTime() > Date.now();
+                nowMs !== null &&
+                new Date(booking.endTime).getTime() > nowMs;
 
               return (
                 <Card key={booking.id} variant="glass" className="space-y-3 p-4">
@@ -249,8 +255,16 @@ export function FacultySpacesView({
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5 text-indigo-500" />
-                          {new Date(booking.startTime).toLocaleString()} –{' '}
-                          {new Date(booking.endTime).toLocaleTimeString()}
+                          {new Intl.DateTimeFormat('en-IN', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                            timeZone: 'Asia/Kolkata',
+                          }).format(new Date(booking.startTime))}{' '}
+                          –{' '}
+                          {new Intl.DateTimeFormat('en-IN', {
+                            timeStyle: 'short',
+                            timeZone: 'Asia/Kolkata',
+                          }).format(new Date(booking.endTime))}
                         </span>
                       </div>
 

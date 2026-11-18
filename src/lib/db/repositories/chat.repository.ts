@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import connectToDatabase from '@/lib/db/mongodb';
 import { ConversationModel, MessageModel } from '../models';
 import type {
   IConversation,
@@ -41,6 +42,12 @@ export interface GetMessagesParams {
 }
 
 export class ChatRepository {
+  private static async ensureConnection(): Promise<void> {
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
+  }
+
   /**
    * Helper to construct unique deterministic direct conversation key
    */
@@ -54,6 +61,7 @@ export class ChatRepository {
   public static async findOrCreateDirectConversation(
     params: CreateDirectConversationParams
   ): Promise<IConversation> {
+    await this.ensureConnection();
     const directKey = this.getDirectKey(params.userAId, params.userBId);
 
     const existing = await ConversationModel.findOne({
@@ -101,6 +109,7 @@ export class ChatRepository {
   public static async createGroupConversation(
     params: CreateGroupConversationParams
   ): Promise<IConversation> {
+    await this.ensureConnection();
     const creatorId = new Types.ObjectId(params.createdBy);
 
     // Build distinct participant IDs starting with creator
@@ -148,6 +157,7 @@ export class ChatRepository {
    * Retrieves conversation by ID.
    */
   public static async findConversationById(id: string): Promise<IConversation | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return ConversationModel.findById(id).exec();
   }
@@ -158,6 +168,7 @@ export class ChatRepository {
   public static async findUserConversations(
     params: FindUserConversationsParams
   ): Promise<IConversation[]> {
+    await this.ensureConnection();
     const query: Record<string, unknown> = {
       participants: new Types.ObjectId(params.userId),
     };
@@ -190,6 +201,7 @@ export class ChatRepository {
       isArchived?: boolean;
     }
   ): Promise<IConversation | null> {
+    await this.ensureConnection();
     return ConversationModel.findByIdAndUpdate(
       id,
       { $set: updates },
@@ -204,6 +216,7 @@ export class ChatRepository {
     conversationId: string,
     userIds: string[]
   ): Promise<IConversation | null> {
+    await this.ensureConnection();
     const objectIds = userIds.map((id) => new Types.ObjectId(id));
     const newMembers = objectIds.map((objId) => ({
       userId: objId,
@@ -230,6 +243,7 @@ export class ChatRepository {
     conversationId: string,
     userIds: string[]
   ): Promise<IConversation | null> {
+    await this.ensureConnection();
     const objectIds = userIds.map((id) => new Types.ObjectId(id));
 
     return ConversationModel.findByIdAndUpdate(
@@ -254,6 +268,7 @@ export class ChatRepository {
     content: string;
     attachments?: IMessageAttachmentSubdoc[];
   }): Promise<IMessage> {
+    await this.ensureConnection();
     const convId = new Types.ObjectId(params.conversationId);
     const senderObjId = new Types.ObjectId(params.senderId);
 
@@ -292,6 +307,7 @@ export class ChatRepository {
   public static async getConversationMessages(
     params: GetMessagesParams
   ): Promise<{ messages: IMessage[]; hasMore: boolean }> {
+    await this.ensureConnection();
     const convId = new Types.ObjectId(params.conversationId);
     const limit = params.limit ?? 50;
 
@@ -346,6 +362,7 @@ export class ChatRepository {
     userId: string,
     lastMessageId?: string
   ): Promise<void> {
+    await this.ensureConnection();
     const convId = new Types.ObjectId(conversationId);
     const userObjId = new Types.ObjectId(userId);
     const now = new Date();
@@ -387,6 +404,7 @@ export class ChatRepository {
     conversationId: string,
     userId: string
   ): Promise<number> {
+    await this.ensureConnection();
     const convId = new Types.ObjectId(conversationId);
     const userObjId = new Types.ObjectId(userId);
 
@@ -402,6 +420,7 @@ export class ChatRepository {
    * Retrieves message by ID.
    */
   public static async findMessageById(messageId: string): Promise<IMessage | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(messageId)) return null;
     return MessageModel.findById(messageId).exec();
   }
@@ -413,6 +432,7 @@ export class ChatRepository {
     messageId: string,
     userId: string
   ): Promise<IMessage | null> {
+    await this.ensureConnection();
     return MessageModel.findByIdAndUpdate(
       messageId,
       {

@@ -74,8 +74,7 @@ const ConversationSchema = new Schema<IConversation>(
     },
     directKey: {
       type: String,
-      sparse: true,
-      index: true,
+      default: undefined,
     },
     participants: [
       {
@@ -110,8 +109,21 @@ const ConversationSchema = new Schema<IConversation>(
   }
 );
 
-// Compound indexes
-ConversationSchema.index({ directKey: 1, type: 1 }, { unique: true, sparse: true });
+// Ensure group conversations NEVER persist directKey (prevents null/empty key collisions)
+ConversationSchema.pre('validate', function () {
+  if (this.type === 'group') {
+    this.directKey = undefined;
+  }
+});
+
+// Compound indexes (AUD-C06: partial unique index strictly scoped to direct conversations)
+ConversationSchema.index(
+  { directKey: 1, type: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { type: 'direct', directKey: { $type: 'string' } },
+  }
+);
 ConversationSchema.index({ participants: 1, updatedAt: -1 });
 ConversationSchema.index({ departmentId: 1, type: 1, isArchived: 1 });
 

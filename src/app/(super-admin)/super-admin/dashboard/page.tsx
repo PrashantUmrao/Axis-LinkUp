@@ -59,7 +59,10 @@ export default async function SuperAdminDashboardPage() {
 
       {/* Module Ingress Grid (Reference 2 Grid Layout) */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Link href="/super-admin/emergency" className="block focus:outline-none">
+        <Link
+          href="/super-admin/emergency"
+          className="block rounded-xl focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:outline-none"
+        >
           <Card
             variant="glass"
             className="border-glass-border hover:border-destructive/50 h-full space-y-2 border p-5 shadow-sm transition-all hover:shadow-md"
@@ -82,7 +85,10 @@ export default async function SuperAdminDashboardPage() {
           </Card>
         </Link>
 
-        <Link href="/super-admin/roles" className="block focus:outline-none">
+        <Link
+          href="/super-admin/roles"
+          className="block rounded-xl focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:outline-none"
+        >
           <Card
             variant="glass"
             className="border-glass-border hover:border-primary/40 h-full space-y-2 border p-5 shadow-sm transition-all hover:shadow-md"
@@ -105,7 +111,10 @@ export default async function SuperAdminDashboardPage() {
           </Card>
         </Link>
 
-        <Link href="/super-admin/audit" className="block focus:outline-none">
+        <Link
+          href="/super-admin/audit"
+          className="block rounded-xl focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:outline-none"
+        >
           <Card
             variant="glass"
             className="border-glass-border hover:border-primary/40 h-full space-y-2 border p-5 shadow-sm transition-all hover:shadow-md"
@@ -159,7 +168,7 @@ export default async function SuperAdminDashboardPage() {
             <span>Tier-2 Security Active</span>
           </div>
           <p className="text-muted-foreground text-[11px]">
-            DOC-AUTH-005 RBAC enforcement active on all 15 Next.js server components.
+            DOC-AUTH-005 RBAC enforcement active across all institutional portals and API handlers.
           </p>
         </div>
       </div>

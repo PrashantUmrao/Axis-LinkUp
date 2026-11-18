@@ -42,6 +42,7 @@ import type {
   SubmissionFilterInput,
 } from '@/lib/validations/assignment.schema';
 import {
+  AppError,
   BadRequestError,
   ForbiddenError,
   NotFoundError,
@@ -49,6 +50,15 @@ import {
   ConflictError,
   UnauthorizedError,
 } from '@/lib/errors/app-error';
+import { ERROR_CODES } from '@/lib/errors/error-codes';
+import { HTTP_STATUS } from '@/config/constants';
+
+export const ALLOWED_UPLOAD_SCOPES = ['assignments', 'complaints', 'requests'] as const;
+export type UploadScope = (typeof ALLOWED_UPLOAD_SCOPES)[number];
+
+export const ALLOWED_UPLOAD_FORMATS =
+  'pdf,doc,docx,ppt,pptx,xls,xlsx,txt,zip,rar,7z,png,jpg,jpeg,webp';
+export const MAX_UPLOAD_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export class AssignmentService {
   /* ======================================================================== */
@@ -991,37 +1001,74 @@ export class AssignmentService {
   /* ======================================================================== */
 
   /**
-   * Generates server-signed upload parameters for direct client-to-Cloudinary uploads.
-   * If Cloudinary is unconfigured, returns local fallback development metadata.
+   * Generates server-signed upload parameters for direct client-to-Cloudinary uploads (AUD-H13).
+   * Enforces user-scoped folder isolation (`axis-linkup/<scope>/<userId>`), `allowed_formats`,
+   * and `max_file_size` inside the canonical SHA-1 signature.
+   * In non-production environments without Cloudinary credentials, returns a local fallback envelope.
+   * In production, fails closed with HTTP 503 if Cloudinary credentials are absent.
    */
-  public static getUploadSignature(session: UserSession | null): {
+  public static getUploadSignature(
+    session: UserSession | null,
+    scope: UploadScope = 'assignments'
+  ): {
     timestamp: number;
     signature?: string;
     apiKey?: string;
     cloudName?: string;
     folder: string;
+    allowedFormats: string;
+    maxFileSize: number;
     isMock: boolean;
   } {
     this.assertActiveSession(session);
 
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    if (!ALLOWED_UPLOAD_SCOPES.includes(scope)) {
+      throw new ValidationError(
+        `Invalid upload scope "${String(scope)}". Allowed scopes: ${ALLOWED_UPLOAD_SCOPES.join(', ')}.`
+      );
+    }
+
+    const safeUserId = session.userId.replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!safeUserId) {
+      throw new ValidationError('Unable to derive isolated storage folder for caller identity.');
+    }
+
+    const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
+    const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?.trim();
 
     const timestamp = Math.round(Date.now() / 1000);
-    const folder = 'axis-linkup/assignments';
+    const folder = `axis-linkup/${scope}/${safeUserId}`;
+    const allowedFormats = ALLOWED_UPLOAD_FORMATS;
+    const maxFileSize = MAX_UPLOAD_FILE_SIZE_BYTES;
 
     if (!apiKey || !apiSecret || !cloudName) {
-      logger.debug('[AssignmentService] Cloudinary unconfigured. Providing local attachment envelope.');
+      if (process.env.NODE_ENV === 'production') {
+        logger.error(
+          '[AssignmentService] Production upload signature aborted: Cloudinary credentials missing.'
+        );
+        throw new AppError(
+          'File storage service is not configured. Please contact the Campus System Administrator.',
+          ERROR_CODES.INTERNAL_ERROR,
+          HTTP_STATUS.SERVICE_UNAVAILABLE
+        );
+      }
+
+      logger.debug(
+        `[AssignmentService] Cloudinary unconfigured. Providing local development attachment envelope (scope=${scope}).`
+      );
       return {
         timestamp,
         folder,
+        allowedFormats,
+        maxFileSize,
         isMock: true,
       };
     }
 
-    // Canonical Cloudinary SHA-1 signature: folder=...&timestamp=...<secret>
-    const serializedParams = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+    // Canonical Cloudinary SHA-1 signature (alphabetically sorted signed parameters):
+    // allowed_formats=...&folder=...&max_file_size=...&timestamp=...<apiSecret>
+    const serializedParams = `allowed_formats=${allowedFormats}&folder=${folder}&max_file_size=${maxFileSize}&timestamp=${timestamp}${apiSecret}`;
     const signature = crypto.createHash('sha1').update(serializedParams).digest('hex');
 
     return {
@@ -1030,6 +1077,8 @@ export class AssignmentService {
       apiKey,
       cloudName,
       folder,
+      allowedFormats,
+      maxFileSize,
       isMock: false,
     };
   }

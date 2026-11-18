@@ -7,7 +7,7 @@
  * severity-coded top banner, and a mandatory full-screen takeover modal for RED alerts.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Badge, Button } from '@/components/ui';
 import {
   AlertTriangle,
@@ -48,6 +48,7 @@ export function EmergencyGlobalBanner({
   );
   const [isAcknowledging, setIsAcknowledging] = useState<boolean>(false);
   const [ackError, setAckError] = useState<string | null>(null);
+  const modalContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchActiveAlert = useCallback(async () => {
     try {
@@ -138,11 +139,29 @@ export function EmergencyGlobalBanner({
     };
   }, [fetchActiveAlert, initialAlert]);
 
-  if (!activeAlert) return null;
+  const isMandatoryTakeover = Boolean(
+    activeAlert && activeAlert.severity === 'red' && !hasAcknowledged
+  );
+  const showModal = Boolean(activeAlert && (isModalOpen || isMandatoryTakeover));
 
-  const isMandatoryTakeover =
-    activeAlert.severity === 'red' && !hasAcknowledged;
-  const showModal = isModalOpen || isMandatoryTakeover;
+  // Keyboard Escape handling for non-mandatory dialogs + focus management on open
+  useEffect(() => {
+    if (!showModal) return;
+
+    modalContainerRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isMandatoryTakeover) {
+        event.preventDefault();
+        setIsModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showModal, isMandatoryTakeover]);
+
+  if (!activeAlert) return null;
 
   const handleAcknowledge = async () => {
     setAckError(null);
@@ -229,7 +248,11 @@ export function EmergencyGlobalBanner({
           aria-labelledby="emergency-takeover-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
         >
-          <div className="bg-background border-destructive/60 relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border-2 p-6 shadow-2xl">
+          <div
+            ref={modalContainerRef}
+            tabIndex={-1}
+            className="bg-background border-destructive/60 relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border-2 p-6 shadow-2xl focus:outline-none"
+          >
             {!isMandatoryTakeover && (
               <button
                 type="button"
@@ -280,7 +303,11 @@ export function EmergencyGlobalBanner({
                 </h2>
                 <p className="text-muted-foreground text-[11px]">
                   Issued by {activeAlert.triggeredBySnapshot.fullName} •{' '}
-                  {new Date(activeAlert.triggeredAt).toLocaleString()}
+                  {new Intl.DateTimeFormat('en-IN', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                    timeZone: 'Asia/Kolkata',
+                  }).format(new Date(activeAlert.triggeredAt))}
                 </p>
               </div>
             </div>

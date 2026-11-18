@@ -437,9 +437,12 @@ export class PollService {
       query.status = { $in: ['active', 'closed'] };
     }
 
-    // Search filter
+    // Search filter (AUD-M02: escape regex metacharacters to prevent ReDoS / invalid pattern 500s)
     if (filters.search) {
-      query.question = { $regex: filters.search, $options: 'i' };
+      const escapedSearch = filters.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (escapedSearch.length > 0) {
+        query.question = { $regex: escapedSearch, $options: 'i' };
+      }
     }
 
     // Audience targeting

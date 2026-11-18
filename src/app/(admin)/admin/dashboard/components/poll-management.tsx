@@ -37,9 +37,15 @@ import {
 
 interface AdminPollManagementProps {
   activeScope?: 'sys_admin' | 'hod' | 'director';
+  currentUserRole?: string;
+  departmentId?: string | null;
 }
 
-export function AdminPollManagement({ activeScope = 'sys_admin' }: AdminPollManagementProps) {
+export function AdminPollManagement({
+  activeScope = 'sys_admin',
+  currentUserRole = 'admin',
+  departmentId = null,
+}: AdminPollManagementProps) {
   const [polls, setPolls] = useState<PollDTO[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -234,7 +240,7 @@ export function AdminPollManagement({ activeScope = 'sys_admin' }: AdminPollMana
                   key={poll.id}
                   poll={poll}
                   onPollUpdated={handlePollUpdated}
-                  currentUserRole="super_admin"
+                  currentUserRole={currentUserRole}
                 />
               ))}
             </div>
@@ -256,8 +262,9 @@ export function AdminPollManagement({ activeScope = 'sys_admin' }: AdminPollMana
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onPollCreated={handlePollCreated}
-        currentUserRole="super_admin"
+        currentUserRole={currentUserRole}
         adminSubRole={activeScope}
+        departmentId={departmentId}
       />
     </>
   );

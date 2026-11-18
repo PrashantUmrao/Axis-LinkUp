@@ -491,7 +491,7 @@ export function UIPreviewClient() {
                         <div className="border-border/50 flex justify-between border-b pb-2">
                           <span className="text-muted-foreground">Institutional Email:</span>
                           <span className="text-foreground font-semibold">
-                            theprashantumrao@gmail.com
+                            aarav.sharma@axiscolleges.in
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -701,8 +701,8 @@ export function UIPreviewClient() {
                 <span className="text-muted-foreground text-xs">Profile Component:</span>
                 <UserProfileMenu
                   user={{
-                    email: 'theprashantumrao@gmail.com',
-                    fullName: 'Prashant Umrao',
+                    email: 'aarav.sharma@axiscolleges.in',
+                    fullName: 'Aarav Sharma',
                     role: previewRole,
                   }}
                 />

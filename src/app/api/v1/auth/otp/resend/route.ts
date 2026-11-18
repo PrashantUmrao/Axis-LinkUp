@@ -4,16 +4,28 @@ import { successResponse } from '@/lib/api/api-response';
 import { HTTP_STATUS } from '@/config/constants';
 import { handleApiError } from '@/lib/api/api-error-handler';
 import { resendOtpSchema } from '@/lib/validations/otp.schema';
+import {
+  checkRateLimit,
+  createRateLimitErrorResponse,
+  getClientIp,
+} from '@/lib/security/rate-limiter';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/v1/auth/otp/resend
  * Resends a fresh 6-digit verification code to the recipient.
- * Enforces a strict 60-second cooldown period from previous dispatch.
+ * Enforces sliding-window IP rate limiting (5/60s) and 60-second cooldown.
  */
 export async function POST(req: NextRequest) {
   try {
+    const rateLimit = checkRateLimit(`auth:otp-resend:${getClientIp(req)}`, {
+      maxRequests: 5,
+      windowMs: 60_000,
+    });
+    if (!rateLimit.allowed) {
+      return createRateLimitErrorResponse(rateLimit);
+    }
     let body: unknown;
     try {
       body = await req.json();

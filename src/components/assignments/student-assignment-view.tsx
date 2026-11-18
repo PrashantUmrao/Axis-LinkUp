@@ -6,7 +6,7 @@
  * responsive coursework cards, and direct submission integration.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Card,
   Badge,
@@ -49,6 +49,11 @@ export function StudentAssignmentView({
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDetailAssignment, setSelectedDetailAssignment] = useState<AssignmentDTO | null>(null);
   const [selectedSubmitAssignment, setSelectedSubmitAssignment] = useState<AssignmentDTO | null>(null);
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, []);
 
   // Live refresh from API
   const refreshAssignments = useCallback(async () => {
@@ -66,9 +71,8 @@ export function StudentAssignmentView({
     }
   }, []);
 
-  // Compute Overview Statistics
+  // Compute Overview Statistics (hydration-safe via post-mount clock)
   const stats = useMemo(() => {
-    const now = new Date();
     const total = assignments.length;
     let pending = 0;
     let submitted = 0;
@@ -76,7 +80,7 @@ export function StudentAssignmentView({
     let overdue = 0;
 
     for (const a of assignments) {
-      const isPastDue = new Date(a.dueDate) < now;
+      const isPastDue = nowMs !== null && new Date(a.dueDate).getTime() < nowMs;
       if (a.userSubmission?.isGraded) {
         evaluated++;
       } else if (a.userSubmission) {
@@ -89,11 +93,10 @@ export function StudentAssignmentView({
     }
 
     return { total, pending, submitted, evaluated, overdue };
-  }, [assignments]);
+  }, [assignments, nowMs]);
 
   // Filtered Assignments List
   const filteredAssignments = useMemo(() => {
-    const now = new Date();
     return assignments.filter((a) => {
       // 1. Search Query Filter
       if (searchQuery.trim()) {
@@ -108,7 +111,7 @@ export function StudentAssignmentView({
       }
 
       // 2. Tab Filter
-      const isPastDue = new Date(a.dueDate) < now;
+      const isPastDue = nowMs !== null && new Date(a.dueDate).getTime() < nowMs;
       if (activeTab === 'pending') {
         return !a.userSubmission && !isPastDue;
       }
@@ -124,7 +127,7 @@ export function StudentAssignmentView({
 
       return true;
     });
-  }, [assignments, activeTab, searchQuery]);
+  }, [assignments, activeTab, searchQuery, nowMs]);
 
   const handleSubmissionSuccess = (newSub: SubmissionDTO) => {
     // Update local assignment state with userSubmission summary
@@ -149,7 +152,10 @@ export function StudentAssignmentView({
   };
 
   const getRemainingTimeNotice = (dueDateStr: string) => {
-    const diff = new Date(dueDateStr).getTime() - Date.now();
+    if (nowMs === null) {
+      return null;
+    }
+    const diff = new Date(dueDateStr).getTime() - nowMs;
     if (diff < 0) {
       return <span className="font-semibold text-destructive">Past Due</span>;
     }
@@ -355,9 +361,8 @@ export function StudentAssignmentView({
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredAssignments.map((assignment) => {
-            const now = new Date();
             const dueDate = new Date(assignment.dueDate);
-            const isPastDue = now > dueDate;
+            const isPastDue = nowMs !== null && nowMs > dueDate.getTime();
             const sub = assignment.userSubmission;
 
             return (
@@ -421,7 +426,14 @@ export function StudentAssignmentView({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <Calendar className="size-3 shrink-0" />
-                        <span>{new Date(assignment.dueDate).toLocaleDateString()}</span>
+                        <span>
+                          {new Intl.DateTimeFormat('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            timeZone: 'Asia/Kolkata',
+                          }).format(dueDate)}
+                        </span>
                       </div>
                       <div className="text-[11px]">
                         {getRemainingTimeNotice(assignment.dueDate)}

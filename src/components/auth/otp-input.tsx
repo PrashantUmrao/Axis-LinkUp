@@ -47,6 +47,24 @@ export function OtpInput({
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const hasAutoSentRef = useRef<boolean>(false);
+  const isSendingRef = useRef<boolean>(false);
+  const cooldownRef = useRef<number>(0);
+  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep refs synchronized for stable callback checks
+  useEffect(() => {
+    cooldownRef.current = cooldown;
+  }, [cooldown]);
+
+  // Clear pending timers on unmount to avoid state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+      if (verifyTimeoutRef.current) clearTimeout(verifyTimeoutRef.current);
+    };
+  }, []);
 
   // Cooldown countdown timer
   useEffect(() => {
@@ -60,8 +78,9 @@ export function OtpInput({
   // Request fresh OTP code
   const handleRequestOtp = useCallback(
     async (isResend = false) => {
-      if (!email || isSending || cooldown > 0) return;
+      if (!email || isSendingRef.current || cooldownRef.current > 0) return;
 
+      isSendingRef.current = true;
       setIsSending(true);
       setErrorMessage(null);
       setSuccessNotice(null);
@@ -80,13 +99,16 @@ export function OtpInput({
           throw new Error(json.message || 'Failed to dispatch verification code.');
         }
 
-        setCooldown(json.data?.resendAvailableInSeconds || 60);
+        const nextCooldown = json.data?.resendAvailableInSeconds || 60;
+        cooldownRef.current = nextCooldown;
+        setCooldown(nextCooldown);
         setSuccessNotice(json.message || 'Verification code sent to your email.');
         setDigits(['', '', '', '', '', '']);
         setRemainingAttempts(null);
 
-        // Focus first input box
-        setTimeout(() => {
+        // Focus first input box safely
+        if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = setTimeout(() => {
           inputRefs.current[0]?.focus();
         }, 100);
       } catch (err: unknown) {
@@ -94,18 +116,20 @@ export function OtpInput({
           err instanceof Error ? err.message : 'Failed to send verification code.'
         );
       } finally {
+        isSendingRef.current = false;
         setIsSending(false);
       }
     },
-    [email, purpose, isSending, cooldown]
+    [email, purpose]
   );
 
-  // Auto-send on mount if requested
+  // Single-shot auto-send on mount (AUD-C09: never re-triggers when cooldown hits 0 or on error)
   useEffect(() => {
-    if (autoSendOnMount) {
-      handleRequestOtp(false);
+    if (autoSendOnMount && email && !hasAutoSentRef.current) {
+      hasAutoSentRef.current = true;
+      void handleRequestOtp(false);
     }
-  }, [autoSendOnMount, handleRequestOtp]);
+  }, [autoSendOnMount, email, handleRequestOtp]);
 
   // Handle single character input & auto-advance
   const handleDigitChange = (index: number, val: string) => {
@@ -196,7 +220,8 @@ export function OtpInput({
 
       setIsSuccess(true);
       setSuccessNotice('Email verified successfully!');
-      setTimeout(() => {
+      if (verifyTimeoutRef.current) clearTimeout(verifyTimeoutRef.current);
+      verifyTimeoutRef.current = setTimeout(() => {
         onVerified(json.data);
       }, 600);
     } catch (err: unknown) {

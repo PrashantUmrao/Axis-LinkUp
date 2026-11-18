@@ -44,6 +44,9 @@ import type {
 } from '@/types/notification';
 
 export const NOTIFICATION_DEDUPE_WINDOW_MS = 60_000; // 60 seconds
+export const BROADCAST_USER_PAGE_SIZE = 100;
+export const BROADCAST_INSERT_BATCH_SIZE = 200;
+const MAX_BROADCAST_PAGINATION_PAGES = 1000;
 
 export interface DispatchNotificationInput {
   userId: string;
@@ -302,11 +305,53 @@ export class NotificationService {
   }
 
   /**
+   * Paginates through ALL matching users from UserRepository.findGovernedUsers without
+   * truncating at a single 100-user page (AUD-C10).
+   */
+  private static async collectAllGovernedRecipientIds(
+    filter: Record<string, unknown>
+  ): Promise<string[]> {
+    const collected = new Set<string>();
+    let page = 1;
+
+    while (page <= MAX_BROADCAST_PAGINATION_PAGES) {
+      const { users, total } = await UserRepository.findGovernedUsers(
+        filter,
+        page,
+        BROADCAST_USER_PAGE_SIZE
+      );
+
+      if (!users || users.length === 0) {
+        break;
+      }
+
+      const sizeBefore = collected.size;
+      for (const user of users) {
+        collected.add(user._id.toString());
+      }
+
+      // Stop once all matching records are retrieved or if the page returned fewer items than requested
+      if (
+        collected.size >= total ||
+        users.length < BROADCAST_USER_PAGE_SIZE ||
+        collected.size === sizeBefore
+      ) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    return Array.from(collected);
+  }
+
+  /**
    * Dispatches a targeted ad-hoc alert broadcast respecting PERMISSIONS.ALERTS_DISPATCH.
    * - student: 403 DENY
    * - faculty: OWN (specific_users or own department only)
    * - admin: DEPT (own department or specific_users in dept; blocks all_users)
    * - super_admin: ALLOW (all scopes)
+   * Paginates through ALL matching recipients and batch-inserts via NotificationRepository.createMany (AUD-C10).
    */
   public static async broadcastAlert(
     session: UserSession,
@@ -324,6 +369,12 @@ export class NotificationService {
       throw new ValidationError('Invalid broadcast alert payload', parsed.error.flatten());
     }
     const data = parsed.data;
+
+    if (data.linkUrl && !isSafeInternalLinkUrl(data.linkUrl)) {
+      throw new ValidationError(
+        'Unsafe notification linkUrl rejected. Only relative internal paths starting with "/" are allowed.'
+      );
+    }
 
     // Enforce RBAC targeting scope boundaries
     if (session.role !== 'super_admin') {
@@ -353,7 +404,7 @@ export class NotificationService {
       }
     }
 
-    // Resolve recipient user IDs
+    // Resolve ALL recipient user IDs (paginated — zero 100-user silent truncation)
     let recipientIds: string[] = [];
 
     if (data.targetScope === 'specific_users') {
@@ -365,42 +416,96 @@ export class NotificationService {
       const targetDeptId = dept ? dept._id.toString() : session.departmentId;
       if (targetDeptId) {
         const deptUsers = await UserRepository.findByDepartment(targetDeptId);
-        recipientIds = deptUsers
-          .filter((u) => u.status === 'active')
-          .map((u) => u._id.toString());
+        recipientIds = Array.from(
+          new Set(
+            deptUsers
+              .filter((u) => u.status === 'active')
+              .map((u) => u._id.toString())
+          )
+        );
       }
     } else if (data.targetScope === 'by_role') {
-      const { users } = await UserRepository.findGovernedUsers(
-        { status: 'active', role: { $in: data.targetRoles } },
-        1,
-        100
-      );
-      recipientIds = users.map((u) => u._id.toString());
+      recipientIds = await this.collectAllGovernedRecipientIds({
+        status: 'active',
+        role: { $in: data.targetRoles },
+      });
     } else if (data.targetScope === 'all_users') {
-      const { users } = await UserRepository.findGovernedUsers({ status: 'active' }, 1, 100);
-      recipientIds = users.map((u) => u._id.toString());
+      recipientIds = await this.collectAllGovernedRecipientIds({ status: 'active' });
     }
 
     let dispatchedCount = 0;
     let skippedCount = 0;
     const dedupeBase = `broadcast:${session.userId}:${data.title.toLowerCase().slice(0, 40)}`;
+    const expiresAt = new Date(Date.now() + NOTIFICATION_RETENTION_MS);
+    const trimmedTitle = data.title.trim();
+    const trimmedMessage = data.message.trim();
+    const trimmedLinkUrl = data.linkUrl ? data.linkUrl.trim() : null;
+    const resolvedPriority = data.priority || (data.category === 'emergency' ? 'urgent' : 'normal');
 
-    for (const userId of recipientIds) {
-      const res = await this.dispatch({
-        userId,
-        title: data.title,
-        message: data.message,
-        category: data.category,
-        priority: data.priority,
-        linkUrl: data.linkUrl ?? null,
-        dedupeKey: `${dedupeBase}:${userId}`,
-        metadata: {
-          broadcastBy: session.userId,
-          targetScope: data.targetScope,
-        },
-      });
-      if (res.skipped) skippedCount += 1;
-      else dispatchedCount += 1;
+    // Process recipients in bounded batches using NotificationRepository.createMany
+    for (let offset = 0; offset < recipientIds.length; offset += BROADCAST_INSERT_BATCH_SIZE) {
+      const chunk = recipientIds.slice(offset, offset + BROADCAST_INSERT_BATCH_SIZE);
+      const pendingInserts: Array<Parameters<typeof NotificationRepository.createMany>[0][number]> = [];
+
+      for (const userId of chunk) {
+        // 1. Respect mute preferences (emergency alerts ALWAYS bypass mute preferences)
+        if (data.category !== 'emergency') {
+          const pref = await NotificationPreferenceRepository.findByUserId(userId);
+          if (pref) {
+            const catKey = data.category as MutableNotificationCategory;
+            if (!pref.inAppEnabled || (pref.categories && pref.categories[catKey] === false)) {
+              skippedCount += 1;
+              continue;
+            }
+          }
+        }
+
+        // 2. 60-second deduplication check
+        const dedupeKey = `${dedupeBase}:${userId}`;
+        const existingDup = await NotificationRepository.findRecentDuplicate(
+          userId,
+          dedupeKey,
+          NOTIFICATION_DEDUPE_WINDOW_MS
+        );
+        if (existingDup) {
+          skippedCount += 1;
+          continue;
+        }
+
+        pendingInserts.push({
+          userId: new Types.ObjectId(userId),
+          title: trimmedTitle,
+          message: trimmedMessage,
+          category: data.category,
+          priority: resolvedPriority,
+          linkUrl: trimmedLinkUrl,
+          dedupeKey,
+          metadata: {
+            broadcastBy: session.userId,
+            targetScope: data.targetScope,
+          },
+          isRead: false,
+          readAt: null,
+          isArchived: false,
+          expiresAt,
+        });
+      }
+
+      if (pendingInserts.length > 0) {
+        const insertedDocs = await NotificationRepository.createMany(pendingInserts);
+        dispatchedCount += insertedDocs.length;
+
+        // Real-time push per inserted notification (non-blocking)
+        await Promise.allSettled(
+          insertedDocs.map((doc) => {
+            const dto = toNotificationDTO(doc);
+            const channel = AblyBroker.getUserNotificationChannel(dto.userId);
+            return AblyBroker.publish(channel, 'notification.created', {
+              notification: dto,
+            });
+          })
+        );
+      }
     }
 
     // Record immutable audit trail (non-blocking)

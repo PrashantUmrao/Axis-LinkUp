@@ -10,8 +10,6 @@ import { UserRepository } from '@/lib/db/repositories/user.repository';
 import { EmailService } from './email.service';
 import {
   ValidationError,
-  NotFoundError,
-  ForbiddenError,
   AppError,
 } from '@/lib/errors/app-error';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
@@ -34,6 +32,32 @@ export class OtpService {
    * OTP expiration TTL: 5 minutes (300 seconds).
    */
   public static OTP_EXPIRATION_MS = 5 * 60 * 1000;
+
+  /**
+   * Verification proof token expiration TTL: 15 minutes (900 seconds).
+   */
+  public static PROOF_EXPIRATION_MS = 15 * 60 * 1000;
+
+  /**
+   * Resolves the HMAC secret used to sign verification proof tokens.
+   * Fail-closed in production: refuses hardcoded fallbacks when NODE_ENV === 'production'.
+   */
+  private static getProofHmacSecret(): string {
+    const configuredSecret = process.env.OTP_HMAC_SECRET || process.env.CLERK_SECRET_KEY;
+    if (configuredSecret && configuredSecret.trim().length > 0) {
+      return configuredSecret.trim();
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new AppError(
+        'Server configuration error: OTP_HMAC_SECRET or CLERK_SECRET_KEY must be configured in production.',
+        ERROR_CODES.INTERNAL_ERROR,
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
+
+    return 'axis-linkup-dev-otp-secret';
+  }
 
   /**
    * Cooldown window between resend requests: 60 seconds.
@@ -68,25 +92,48 @@ export class OtpService {
     const validated = requestOtpSchema.parse(input);
     const normalizedEmail = validated.email.toLowerCase().trim();
 
-    // 1. Contextual User Lifecycle Checks
+    // 1. Contextual User Lifecycle Checks (AUD-H11 Anti-Enumeration Defense)
+    // Suppress OTP dispatch silently for non-existent or restricted accounts instead of
+    // throwing 404/403 status-leaking errors on public OTP request endpoints.
     const existingUser = await UserRepository.findByEmail(normalizedEmail);
+    const nowInit = Date.now();
+    const genericResendAvailableAt = new Date(nowInit + this.RESEND_COOLDOWN_MS);
+    const genericSuppressedResponse: RequestOtpResponse = {
+      email: EmailService.maskEmail(normalizedEmail),
+      purpose: validated.purpose as OtpPurpose,
+      resendAvailableAt: genericResendAvailableAt.toISOString(),
+      expiresInSeconds: Math.floor(this.OTP_EXPIRATION_MS / 1000),
+      resendAvailableInSeconds: Math.floor(this.RESEND_COOLDOWN_MS / 1000),
+      expiresInMinutes: Math.floor(this.OTP_EXPIRATION_MS / 60000),
+    };
 
     if (validated.purpose === 'password_recovery') {
-      if (!existingUser) {
-        throw new NotFoundError(
-          `No collegiate account found with institutional email "${normalizedEmail}".`
+      if (
+        !existingUser ||
+        existingUser.status === 'suspended' ||
+        existingUser.status === 'deactivated' ||
+        existingUser.status === 'archived' ||
+        existingUser.status === 'graduated'
+      ) {
+        logger.info(
+          `[OtpService] Suppressed password_recovery OTP for unrecognized or restricted account (${EmailService.maskEmail(normalizedEmail)})`
         );
+        return genericSuppressedResponse;
       }
-      if (existingUser.status === 'suspended') {
-        throw new ForbiddenError(
-          'Suspended accounts cannot initiate password recovery without administrative clearance.'
+    } else if (
+      validated.purpose === 'account_activation' ||
+      validated.purpose === 'email_verification'
+    ) {
+      if (
+        existingUser &&
+        (existingUser.status === 'suspended' ||
+          existingUser.status === 'deactivated' ||
+          existingUser.status === 'archived')
+      ) {
+        logger.info(
+          `[OtpService] Suppressed ${validated.purpose} OTP for restricted account (${EmailService.maskEmail(normalizedEmail)})`
         );
-      }
-    } else if (validated.purpose === 'account_activation' || validated.purpose === 'email_verification') {
-      if (existingUser?.status === 'suspended') {
-        throw new ForbiddenError(
-          'Suspended collegiate accounts cannot undergo email verification.'
-        );
+        return genericSuppressedResponse;
       }
     }
 
@@ -244,13 +291,17 @@ export class OtpService {
     }
 
     // 6. Generate Single-Use Cryptographic Proof Token (used to authorize password reset)
-    const { rawToken, tokenHash } = this.generateProofToken(
+    const { rawToken, tokenHash, expiresAt: proofExpiresAt } = this.generateProofToken(
       normalizedEmail,
       validated.purpose as OtpPurpose
     );
 
     try {
-      await OtpRepository.setVerificationProof(activeOtp._id.toString(), tokenHash);
+      await OtpRepository.setVerificationProof(
+        activeOtp._id.toString(),
+        tokenHash,
+        proofExpiresAt
+      );
     } catch (proofErr) {
       logger.warn(
         `[OtpService] Could not persist proof token hash to OTP doc: ${proofErr}`
@@ -276,14 +327,15 @@ export class OtpService {
   public static generateProofToken(
     email: string,
     purpose: OtpPurpose
-  ): { rawToken: string; tokenHash: string } {
-    const proofSecret = process.env.CLERK_SECRET_KEY || 'axis-linkup-otp-secret';
+  ): { rawToken: string; tokenHash: string; expiresAt: Date } {
+    const proofSecret = this.getProofHmacSecret();
     const now = Date.now();
+    const expiresAtMs = now + this.PROOF_EXPIRATION_MS;
     const payload = {
       email: email.toLowerCase().trim(),
       purpose,
       issuedAt: now,
-      expiresAt: now + 15 * 60 * 1000, // 15 minutes TTL
+      expiresAt: expiresAtMs, // 15 minutes TTL
       nonce: crypto.randomBytes(16).toString('hex'),
     };
     const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -293,7 +345,7 @@ export class OtpService {
       .digest('hex');
     const rawToken = `${payloadStr}.${signature}`;
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    return { rawToken, tokenHash };
+    return { rawToken, tokenHash, expiresAt: new Date(expiresAtMs) };
   }
 
   /**
@@ -313,7 +365,7 @@ export class OtpService {
       throw new ValidationError('Malformed verification proof token structure.');
     }
 
-    const proofSecret = process.env.CLERK_SECRET_KEY || 'axis-linkup-otp-secret';
+    const proofSecret = this.getProofHmacSecret();
     const expectedSignature = crypto
       .createHmac('sha256', proofSecret)
       .update(payloadStr)

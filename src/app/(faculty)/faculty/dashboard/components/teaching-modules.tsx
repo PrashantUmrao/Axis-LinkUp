@@ -138,13 +138,13 @@ export function FacultyTeachingModules() {
                   {course.nextLecture}
                 </span>
 
-                <Link href="/faculty/classes">
+                <Link href="/faculty/assignments">
                   <Button
                     variant="ghost"
                     size="sm"
                     className="text-primary h-6 gap-0.5 px-1.5 text-[10px]"
                   >
-                    Manage Roster
+                    Manage Assignments
                     <ArrowUpRight className="size-2.5" />
                   </Button>
                 </Link>

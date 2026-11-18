@@ -4,6 +4,7 @@
  */
 
 import { Types } from 'mongoose';
+import connectToDatabase from '@/lib/db/mongodb';
 import OtpModel from '@/lib/db/models/otp.model';
 import type { IOtpDocument, OtpPurpose } from '@/types/otp';
 
@@ -18,11 +19,18 @@ export interface CreateOtpParams {
 }
 
 export class OtpRepository {
+  private static async ensureConnection(): Promise<void> {
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
+  }
+
   /**
    * Persists a new hashed OTP record.
    * Atomically invalidates any prior unconsumed OTPs for the same email and purpose.
    */
   public static async createOtp(params: CreateOtpParams): Promise<IOtpDocument> {
+    await this.ensureConnection();
     const normalizedEmail = params.email.toLowerCase().trim();
 
     // Invalidate existing active OTPs for this email and purpose to enforce single active OTP
@@ -62,6 +70,7 @@ export class OtpRepository {
     email: string,
     purpose: OtpPurpose
   ): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!email || !email.trim()) return null;
     return OtpModel.findOne({
       email: email.toLowerCase().trim(),
@@ -80,6 +89,7 @@ export class OtpRepository {
     email: string,
     purpose: OtpPurpose
   ): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!email || !email.trim()) return null;
     return OtpModel.findOne({
       email: email.toLowerCase().trim(),
@@ -94,6 +104,7 @@ export class OtpRepository {
    * Increments the verification attempt counter on an OTP document.
    */
   public static async incrementAttempts(id: string): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return OtpModel.findByIdAndUpdate(
       id,
@@ -106,6 +117,7 @@ export class OtpRepository {
    * Consumes an OTP atomically, preventing any replay or concurrent reuse.
    */
   public static async consumeOtp(id: string): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return OtpModel.findOneAndUpdate(
       { _id: id, isConsumed: false },
@@ -120,17 +132,25 @@ export class OtpRepository {
   }
 
   /**
-   * Associates an HMAC verification proof token hash with an OTP document.
+   * Associates an HMAC verification proof token hash with an OTP document
+   * and atomically extends expiresAt so MongoDB's TTL index keeps the document
+   * alive for the full 15-minute password-recovery proof window (AUD-C10).
    */
   public static async setVerificationProof(
     id: string,
-    proofTokenHash: string
+    proofTokenHash: string,
+    proofExpiresAt?: Date
   ): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id) || !proofTokenHash) return null;
+    const updateFields: Record<string, unknown> = { proofTokenHash };
+    if (proofExpiresAt instanceof Date && !Number.isNaN(proofExpiresAt.getTime())) {
+      updateFields.expiresAt = proofExpiresAt;
+    }
     return OtpModel.findByIdAndUpdate(
       id,
-      { $set: { proofTokenHash } },
-      { new: true }
+      { $set: updateFields },
+      { returnDocument: 'after' }
     ).exec();
   }
 
@@ -140,19 +160,26 @@ export class OtpRepository {
   public static async findByProofTokenHash(
     proofTokenHash: string
   ): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!proofTokenHash || !proofTokenHash.trim()) return null;
     return OtpModel.findOne({ proofTokenHash: proofTokenHash.trim() }).exec();
   }
 
   /**
-   * Consumes a verification proof token atomically, enforcing single-use recovery and race condition defense.
+   * Consumes a verification proof token atomically, enforcing single-use recovery,
+   * unexpired deadline, and concurrent race condition defense.
    */
   public static async consumeVerificationProof(
     id: string
   ): Promise<IOtpDocument | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return OtpModel.findOneAndUpdate(
-      { _id: id, isProofConsumed: false },
+      {
+        _id: id,
+        isProofConsumed: false,
+        expiresAt: { $gt: new Date() },
+      },
       {
         $set: {
           isProofConsumed: true,
@@ -167,6 +194,7 @@ export class OtpRepository {
    * Deletes an OTP by ID (used in testing cleanup).
    */
   public static async deleteById(id: string): Promise<boolean> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return false;
     const res = await OtpModel.findByIdAndDelete(id).exec();
     return !!res;

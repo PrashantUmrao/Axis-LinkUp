@@ -4,6 +4,7 @@
  */
 
 import { Types } from 'mongoose';
+import connectToDatabase from '@/lib/db/mongodb';
 import UserModel from '@/lib/db/models/user.model';
 import type {
   IUser,
@@ -16,10 +17,17 @@ import type {
 } from '@/types/user';
 
 export class UserRepository {
+  private static async ensureConnection(): Promise<void> {
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
+  }
+
   /**
    * Finds a user document by internal MongoDB ObjectId.
    */
   public static async findById(id: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return UserModel.findById(id).exec();
   }
@@ -28,6 +36,7 @@ export class UserRepository {
    * Finds multiple users by their MongoDB ObjectIds.
    */
   public static async findByIds(ids: string[]): Promise<IUser[]> {
+    await this.ensureConnection();
     const validObjectIds = ids.filter((id) => Types.ObjectId.isValid(id)).map((id) => new Types.ObjectId(id));
     if (validObjectIds.length === 0) return [];
     return UserModel.find({ _id: { $in: validObjectIds } }).lean();
@@ -37,6 +46,7 @@ export class UserRepository {
    * Finds a user by unique institutional email.
    */
   public static async findByEmail(email: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!email || !email.trim()) return null;
     return UserModel.findOne({ email: email.toLowerCase().trim() }).exec();
   }
@@ -45,6 +55,7 @@ export class UserRepository {
    * Finds a user by unique institutional username.
    */
   public static async findByUsername(username: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!username || !username.trim()) return null;
     const normalized = username.toLowerCase().trim();
     const variants = [normalized];
@@ -61,6 +72,7 @@ export class UserRepository {
    * Finds a user by identifier (either email or institutional username).
    */
   public static async findByIdentifier(identifier: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!identifier || !identifier.trim()) return null;
     const normalized = identifier.toLowerCase().trim();
     const variants = [normalized];
@@ -79,6 +91,7 @@ export class UserRepository {
    * Finds a user by external authentication provider identifier (e.g., Clerk user ID).
    */
   public static async findByAuthProviderId(providerId: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!providerId || !providerId.trim()) return null;
     return UserModel.findOne({ authProviderId: providerId.trim() }).exec();
   }
@@ -87,6 +100,7 @@ export class UserRepository {
    * Finds a student by their institutional roll number.
    */
   public static async findByRollNumber(rollNumber: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!rollNumber || !rollNumber.trim()) return null;
     return UserModel.findOne({
       'studentProfile.rollNumber': rollNumber.toUpperCase().trim(),
@@ -97,6 +111,7 @@ export class UserRepository {
    * Finds a faculty member by their unique employee identifier.
    */
   public static async findByEmployeeId(employeeId: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!employeeId || !employeeId.trim()) return null;
     return UserModel.findOne({
       'facultyProfile.employeeId': employeeId.toUpperCase().trim(),
@@ -107,6 +122,7 @@ export class UserRepository {
    * Finds an administrator by their unique staff identifier.
    */
   public static async findByAdminStaffId(adminStaffId: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!adminStaffId || !adminStaffId.trim()) return null;
     return UserModel.findOne({
       'adminProfile.adminStaffId': adminStaffId.toUpperCase().trim(),
@@ -117,6 +133,7 @@ export class UserRepository {
    * Creates and persists a new user document.
    */
   public static async create(input: CreateUserInput): Promise<IUser> {
+    await this.ensureConnection();
     const user = new UserModel({
       ...input,
       email: input.email.toLowerCase().trim(),
@@ -136,6 +153,7 @@ export class UserRepository {
     id: string,
     updateData: UpdateUserProfileInput
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
 
     const setFields: Record<string, unknown> = {};
@@ -177,6 +195,7 @@ export class UserRepository {
     userId: string,
     section: string
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(userId) || !section || !section.trim()) return null;
     return UserModel.findOneAndUpdate(
       { _id: userId, role: 'student' },
@@ -193,6 +212,7 @@ export class UserRepository {
     program: string,
     admissionYear?: number
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(userId) || !program || !program.trim()) return null;
     const setFields: Record<string, unknown> = {
       'studentProfile.program': program.trim().toUpperCase(),
@@ -222,6 +242,7 @@ export class UserRepository {
       designation?: string;
     }
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(userId)) return null;
 
     const user = await UserModel.findById(userId).exec();
@@ -273,6 +294,7 @@ export class UserRepository {
    * Updates user role (Protected Administrative Gate).
    */
   public static async updateRole(id: string, role: UserRole): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return UserModel.findByIdAndUpdate(id, { $set: { role } }, { new: true }).exec();
   }
@@ -281,6 +303,7 @@ export class UserRepository {
    * Updates account lifecycle status (Protected Administrative Gate).
    */
   public static async updateStatus(id: string, status: UserStatus): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return UserModel.findByIdAndUpdate(id, { $set: { status } }, { new: true }).exec();
   }
@@ -298,6 +321,7 @@ export class UserRepository {
       isEmailVerified?: boolean;
     }
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!authProviderId) return null;
     const updateData: Record<string, unknown> = { ...data };
     if (data.email) {
@@ -320,6 +344,7 @@ export class UserRepository {
    * Updates an institutional username.
    */
   public static async updateUsername(id: string, username: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id) || !username) return null;
     return UserModel.findByIdAndUpdate(
       id,
@@ -335,6 +360,7 @@ export class UserRepository {
     id: string,
     adminSubRole: AdminSubRole | null
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     return UserModel.findByIdAndUpdate(
       id,
@@ -350,6 +376,7 @@ export class UserRepository {
     id: string,
     departmentId: string | null
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
     const deptObjId =
       departmentId && Types.ObjectId.isValid(departmentId)
@@ -370,6 +397,7 @@ export class UserRepository {
     page = 1,
     limit = 25
   ): Promise<{ users: IUser[]; total: number }> {
+    await this.ensureConnection();
     const validPage = Math.max(1, page);
     const validLimit = Math.max(1, Math.min(100, limit));
     const skip = (validPage - 1) * validLimit;
@@ -400,6 +428,7 @@ export class UserRepository {
       other: number;
     };
   }> {
+    await this.ensureConnection();
     const [agg] = await UserModel.aggregate([
       {
         $facet: {
@@ -453,6 +482,7 @@ export class UserRepository {
     email: string,
     authProviderId: string
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!email || !authProviderId) return null;
     return UserModel.findOneAndUpdate(
       { email: email.toLowerCase().trim() },
@@ -465,6 +495,7 @@ export class UserRepository {
    * Finds users by department and optional role filter.
    */
   public static async findByDepartment(departmentId: string, role?: UserRole): Promise<IUser[]> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(departmentId)) return [];
     const query: Record<string, unknown> = {
       departmentId: new Types.ObjectId(departmentId),
@@ -493,6 +524,7 @@ export class UserRepository {
     nextCursor: string | null;
     hasMore: boolean;
   }> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(departmentId)) {
       return { students: [], totalCount: 0, nextCursor: null, hasMore: false };
     }
@@ -551,6 +583,7 @@ export class UserRepository {
     tokenHash: string,
     expiresAt: Date
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(userId)) return null;
     return UserModel.findByIdAndUpdate(
       userId,
@@ -568,6 +601,7 @@ export class UserRepository {
    * Finds a user document by their unique cryptographic activation token hash.
    */
   public static async findByActivationTokenHash(tokenHash: string): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!tokenHash || !tokenHash.trim()) return null;
     return UserModel.findOne({ activationTokenHash: tokenHash.trim() }).exec();
   }
@@ -581,6 +615,7 @@ export class UserRepository {
     userId: string,
     activatedAt: Date = new Date()
   ): Promise<IUser | null> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(userId)) return null;
     return UserModel.findOneAndUpdate(
       {
@@ -604,6 +639,7 @@ export class UserRepository {
    * Counts active users by role.
    */
   public static async countByRole(role: UserRole): Promise<number> {
+    await this.ensureConnection();
     return UserModel.countDocuments({ role, status: 'active' }).exec();
   }
 
@@ -611,6 +647,7 @@ export class UserRepository {
    * Deletes a user by internal ID (Super Admin only).
    */
   public static async deleteById(id: string): Promise<boolean> {
+    await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return false;
     const result = await UserModel.findByIdAndDelete(id).exec();
     return !!result;
@@ -632,6 +669,7 @@ export class UserRepository {
     departmentId?: string;
     limit?: number;
   }): Promise<DirectoryUserDTO[]> {
+    await this.ensureConnection();
     const limit = Math.min(50, Math.max(1, options.limit || 20));
     const filter: Record<string, unknown> = {
       status: 'active',

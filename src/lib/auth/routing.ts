@@ -112,3 +112,66 @@ export function sanitizeRedirectUrl(path?: string): string {
   }
   return path;
 }
+
+export type LifecycleGateDecision =
+  | { action: 'allow' }
+  | { action: 'json_403'; code: string; message: string }
+  | { action: 'redirect'; destination: string };
+
+/**
+ * Uniform Edge/Middleware Account Lifecycle Gate (AUD-H12).
+ * - Always permits `/api/auth/logout` so non-active accounts can sign out cleanly.
+ * - For ANY non-active status on `/api/*`, returns JSON HTTP 403 (never a 307 HTML redirect).
+ * - For page routes, redirects cleanly to `/account-suspended`, `/pending-approval`, or `/unauthorized`.
+ */
+export function evaluateAccountLifecycleGate(
+  status: string | undefined | null,
+  currentPath: string
+): LifecycleGateDecision {
+  if (currentPath === '/api/auth/logout') {
+    return { action: 'allow' };
+  }
+
+  const effectiveStatus = status || 'active';
+  if (effectiveStatus === 'active') {
+    return { action: 'allow' };
+  }
+
+  if (currentPath.startsWith('/api/')) {
+    if (effectiveStatus === 'suspended') {
+      return {
+        action: 'json_403',
+        code: 'ACCOUNT_SUSPENDED',
+        message: 'Your account has been suspended by campus administration.',
+      };
+    }
+    if (effectiveStatus === 'pending_verification' || effectiveStatus === 'invited') {
+      return {
+        action: 'json_403',
+        code: 'ACCOUNT_PENDING',
+        message: 'Account activation or registrar verification is required before API access.',
+      };
+    }
+    return {
+      action: 'json_403',
+      code: 'ACCOUNT_INACTIVE',
+      message: `Collegiate account is not active (status: ${effectiveStatus}).`,
+    };
+  }
+
+  if (effectiveStatus === 'suspended') {
+    return currentPath === '/account-suspended'
+      ? { action: 'allow' }
+      : { action: 'redirect', destination: '/account-suspended' };
+  }
+
+  if (effectiveStatus === 'pending_verification' || effectiveStatus === 'invited') {
+    return currentPath === '/pending-approval'
+      ? { action: 'allow' }
+      : { action: 'redirect', destination: '/pending-approval' };
+  }
+
+  return currentPath === '/unauthorized'
+    ? { action: 'allow' }
+    : { action: 'redirect', destination: '/unauthorized' };
+}

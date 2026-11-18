@@ -1,8 +1,10 @@
 import type { NextRequest } from 'next/server';
 import { Types } from 'mongoose';
+import { z } from 'zod';
 import { clerkClient } from '@clerk/nextjs/server';
 import { requireAuth } from '@/lib/auth';
 import { assertCanManageUserRoles } from '@/lib/auth/rbac';
+import { SessionService } from '@/lib/auth/session';
 import { connectToDatabase } from '@/lib/db/mongodb';
 import UserModel, { toUserDTO } from '@/lib/db/models/user.model';
 import { successResponse } from '@/lib/api/api-response';
@@ -13,6 +15,29 @@ import { logger } from '@/lib/logging/logger';
 import type { UserStatus } from '@/types/user';
 
 export const dynamic = 'force-dynamic';
+
+const adminPatchUserSchema = z
+  .object({
+    fullName: z.string().trim().min(2, 'Full name must be at least 2 characters').max(100).optional(),
+    phoneNumber: z.string().trim().max(20).nullable().optional(),
+    status: z
+      .enum([
+        'active',
+        'pending_verification',
+        'suspended',
+        'deactivated',
+        'archived',
+        'graduated',
+        'invited',
+      ])
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      data.fullName !== undefined || data.phoneNumber !== undefined || data.status !== undefined,
+    { message: 'At least one updatable field (fullName, phoneNumber, or status) must be provided.' }
+  );
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -33,7 +58,9 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       throw new ValidationError('Invalid collegiate user identifier format.');
     }
 
-    await connectToDatabase();
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
     const user = await UserModel.findById(id).exec();
     if (!user) {
       throw new NotFoundError(`User with identifier "${id}" not found.`);
@@ -47,12 +74,9 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 
 /**
  * PATCH /api/v1/admin/users/[id]
- * Update collegiate user account details or status.
- * Supports:
- * - Status activation/deactivation/suspension (with Clerk IAM synchronization)
- * - Full name updates (with Clerk IAM synchronization)
- * - Phone number updates
- * Strictly isolates role elevation and protects the root System Administrator from deactivation.
+ * Update collegiate user account details or status with strict Zod validation (AUD-M04).
+ * Protects self and any active Super Administrator from being transitioned to ANY non-active status,
+ * and revokes active Clerk sessions on non-active transitions (AUD-H12).
  */
 export async function PATCH(req: NextRequest, context: RouteContext) {
   try {
@@ -67,50 +91,56 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       throw new ValidationError('Invalid collegiate user identifier format.');
     }
 
-    await connectToDatabase();
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      throw new ValidationError('Malformed JSON request body.');
+    }
+
+    const parsed = adminPatchUserSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      throw new ValidationError('Invalid user update payload', parsed.error.flatten());
+    }
+
+    const { fullName, phoneNumber, status } = parsed.data;
+
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
     const user = await UserModel.findById(id).exec();
     if (!user) {
       throw new NotFoundError(`User with identifier "${id}" not found.`);
     }
 
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      body = {};
+    // AUD-M04 Safety Invariant: Block transitioning self OR any active root/super_admin
+    // to ANY non-active status (suspended, deactivated, archived, pending_verification, graduated, invited)
+    if (status && status !== 'active') {
+      const isSelf = user._id.toString() === session.userId;
+      const isActiveSuperAdmin = user.role === 'super_admin' && user.status === 'active';
+      const isLegacyRoot = user.username === 'admin01';
+
+      if (isSelf || isActiveSuperAdmin || isLegacyRoot) {
+        throw new ForbiddenError(
+          'Critical Security Invariant: Self-disabling or transitioning an active Super Administrator to a non-active status is prohibited.'
+        );
+      }
     }
 
-    const { fullName, phoneNumber, status } = body;
-
-    // Safety Invariant: Prevent deactivation or suspension of the root System Administrator
-    if (
-      status &&
-      (status === 'deactivated' || status === 'suspended') &&
-      (user.username === 'admin01' ||
-        (user.role === 'super_admin' && user.adminSubRole === 'sys_admin' && user._id.toString() === session.userId))
-    ) {
-      throw new ForbiddenError(
-        'Critical Security Invariant: The primary System Administrator account cannot be deactivated or suspended.'
-      );
-    }
-
-    // Apply updates to MongoDB document
+    // Apply validated updates to MongoDB document
     let hasNameChange = false;
     let hasStatusChange = false;
 
-    if (typeof fullName === 'string' && fullName.trim().length >= 2) {
-      user.fullName = fullName.trim();
+    if (fullName !== undefined) {
+      user.fullName = fullName;
       hasNameChange = true;
     }
 
-    if (typeof phoneNumber === 'string') {
-      user.phoneNumber = phoneNumber.trim() || null;
+    if (phoneNumber !== undefined) {
+      user.phoneNumber = phoneNumber ? phoneNumber.trim() || null : null;
     }
 
-    if (
-      typeof status === 'string' &&
-      ['active', 'pending_verification', 'suspended', 'deactivated', 'archived'].includes(status)
-    ) {
+    if (status !== undefined) {
       user.status = status as UserStatus;
       hasStatusChange = true;
     }
@@ -148,6 +178,18 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           `[AdminUserUpdate] Clerk identity synchronization deferred: ${clerkErr instanceof Error ? clerkErr.message : String(clerkErr)}`
         );
       }
+
+      // AUD-H12: Revoke active Clerk sessions when transitioning to any non-active status
+      if (hasStatusChange && user.status !== 'active') {
+        try {
+          await SessionService.revokeAllUserSessions(
+            user.authProviderId,
+            `Administrative status change to ${user.status}`
+          );
+        } catch {
+          // Non-blocking revocation
+        }
+      }
     }
 
     logger.info(
@@ -163,4 +205,3 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     return handleApiError(error);
   }
 }
-

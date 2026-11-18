@@ -79,19 +79,19 @@ export function validateSessionIntegrity(session: UserSession | null): {
     };
   }
 
-  if (userStatus === 'pending_verification') {
+  if (userStatus === 'pending_verification' || userStatus === 'invited') {
     return {
       valid: false,
       status: 'pending',
-      reason: 'Account registration is pending registrar roster verification.',
+      reason: 'Account registration is pending activation or registrar roster verification.',
     };
   }
 
-  if (userStatus === 'deactivated' || userStatus === 'archived') {
+  if (userStatus !== 'active') {
     return {
       valid: false,
       status: 'deactivated',
-      reason: 'Account has been deactivated or archived.',
+      reason: `Account is not active (current status: ${userStatus}).`,
     };
   }
 

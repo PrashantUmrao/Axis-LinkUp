@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { objectIdSchema } from './common-schemas';
+import { objectIdSchema, safeHttpUrlSchema } from './common-schemas';
 
 export const noticePrioritySchema = z.enum(['normal', 'important', 'urgent']);
 
@@ -29,7 +29,7 @@ export const noticeScopeTypeSchema = z.enum([
 
 export const noticeAttachmentSchema = z.object({
   name: z.string().trim().min(1, 'Attachment name is required').max(100),
-  url: z.string().trim().url('Invalid attachment URL'),
+  url: safeHttpUrlSchema,
   sizeBytes: z.number().int().positive('File size must be positive').max(25 * 1024 * 1024, 'Attachment cannot exceed 25MB'),
   mimeType: z.string().trim().min(1, 'MIME type is required'),
 });

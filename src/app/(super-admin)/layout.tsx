@@ -20,8 +20,12 @@ export default async function SuperAdminLayout({
     redirect('/account-suspended');
   }
 
-  if (session.status === 'pending_verification') {
+  if (session.status === 'pending_verification' || session.status === 'invited') {
     redirect('/pending-approval');
+  }
+
+  if (session.status && session.status !== 'active') {
+    redirect('/unauthorized');
   }
 
   if (session.role !== 'super_admin') {

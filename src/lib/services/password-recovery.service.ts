@@ -67,22 +67,29 @@ export class PasswordRecoveryService {
     // If no user is found, return the generic success message without leaking account existence.
     if (!user) {
       logger.info(
-        `[PasswordRecoveryService] Recovery requested for non-existent identifier "${identifier}"`
+        `[PasswordRecoveryService] Recovery requested for unrecognized identifier.`
       );
       return {
         message: this.GENERIC_REQUEST_NOTICE,
+        cooldownSeconds: 60,
       };
     }
 
     // 3. Account Lifecycle Boundary Assertions:
-    // For suspended or deactivated accounts, suppress OTP dispatch to protect collegiate security,
-    // while returning the generic notice to prevent account status enumeration.
-    if (user.status === 'suspended' || user.status === 'deactivated') {
+    // For non-active accounts, suppress OTP dispatch while returning an identical generic notice
+    // to prevent account status enumeration (AUD-H11).
+    if (
+      user.status === 'suspended' ||
+      user.status === 'deactivated' ||
+      user.status === 'archived' ||
+      user.status === 'graduated'
+    ) {
       logger.warn(
-        `[PasswordRecoveryService] Recovery requested for ${user.status} account "${user.email}". Suppressing OTP dispatch.`
+        `[PasswordRecoveryService] Recovery requested for ${user.status} account (${EmailService.maskEmail(user.email)}). Suppressing OTP dispatch.`
       );
       return {
         message: this.GENERIC_REQUEST_NOTICE,
+        cooldownSeconds: 60,
       };
     }
 
@@ -96,9 +103,9 @@ export class PasswordRecoveryService {
       `[PasswordRecoveryService] Dispatched password_recovery code for user ${user._id} (${EmailService.maskEmail(user.email)})`
     );
 
+    // AUD-H11: NEVER return raw unmasked email in public recovery response
     return {
       message: this.GENERIC_REQUEST_NOTICE,
-      email: user.email,
       maskedEmail: EmailService.maskEmail(user.email),
       cooldownSeconds: otpResult.resendAvailableInSeconds || 60,
     };
@@ -172,7 +179,7 @@ export class PasswordRecoveryService {
       );
     }
 
-    if (user.status === 'deactivated') {
+    if (user.status === 'deactivated' || user.status === 'archived' || user.status === 'graduated') {
       throw new ForbiddenError(
         'Deactivated collegiate accounts cannot recover passwords.'
       );
@@ -187,7 +194,16 @@ export class PasswordRecoveryService {
       );
     }
 
-    // 5. Update Permanent Password in Clerk IAM
+    // 5. Atomically Claim & Consume the Verification Proof BEFORE executing Clerk mutation
+    // Eliminates TOCTOU replay window under concurrent reset requests (AUD-C10 / AUD-M08).
+    const consumedProof = await OtpRepository.consumeVerificationProof(otpDoc._id.toString());
+    if (!consumedProof) {
+      throw new ValidationError(
+        'This verification proof has already been used or has expired. Please request a new recovery code.'
+      );
+    }
+
+    // 6. Update Permanent Password in Clerk IAM
     const client = await this.getClerkClient();
     try {
       await client.users.updateUser(authProviderId, {
@@ -195,7 +211,7 @@ export class PasswordRecoveryService {
       });
 
       logger.info(
-        `[PasswordRecoveryService] Updated Clerk password for user ${authProviderId} (${user.email})`
+        `[PasswordRecoveryService] Updated Clerk password for user ${authProviderId} (${EmailService.maskEmail(user.email)})`
       );
     } catch (clerkErr: unknown) {
       const errMsg = clerkErr instanceof Error ? clerkErr.message : String(clerkErr);
@@ -209,7 +225,7 @@ export class PasswordRecoveryService {
       );
     }
 
-    // 6. Revoke All Existing Active Clerk Sessions
+    // 7. Revoke All Existing Active Clerk Sessions
     let sessionsRevoked = 0;
     try {
       const sessionList = await client.sessions.getSessionList({
@@ -233,14 +249,6 @@ export class PasswordRecoveryService {
       const errMsg = sessionErr instanceof Error ? sessionErr.message : String(sessionErr);
       logger.warn(
         `[PasswordRecoveryService] Active session revocation encountered warning for user ${authProviderId}: ${errMsg}`
-      );
-    }
-
-    // 7. Atomically Consume the Verification Proof in MongoDB (Guarantees Single-Use and Race Condition Defense)
-    const consumedProof = await OtpRepository.consumeVerificationProof(otpDoc._id.toString());
-    if (!consumedProof) {
-      logger.warn(
-        `[PasswordRecoveryService] Proof ${otpDoc._id} was already consumed concurrently during password reset for user ${authProviderId}.`
       );
     }
 

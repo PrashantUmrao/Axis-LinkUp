@@ -1,6 +1,10 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { getRoleDashboard, sanitizeRedirectUrl } from '@/lib/auth/routing';
+import {
+  evaluateAccountLifecycleGate,
+  getRoleDashboard,
+  sanitizeRedirectUrl,
+} from '@/lib/auth/routing';
 
 /**
  * Public routes accessible without an active session.
@@ -19,6 +23,7 @@ const isPublicRoute = createRouteMatcher([
   '/ui-preview(.*)',
   '/api/health(.*)',
   '/api/webhooks(.*)',
+  '/api/auth/logout',
   '/api/v1/auth/activation/validate',
   '/api/v1/auth/activation/complete',
   '/api/v1/auth/otp(.*)',
@@ -78,8 +83,11 @@ export default clerkMiddleware(async (auth, req) => {
       if (status === 'suspended') {
         return NextResponse.redirect(new URL('/account-suspended', req.url));
       }
-      if (status === 'pending_verification') {
+      if (status === 'pending_verification' || status === 'invited') {
         return NextResponse.redirect(new URL('/pending-approval', req.url));
+      }
+      if (status !== 'active') {
+        return NextResponse.redirect(new URL('/unauthorized', req.url));
       }
 
       // Delegate to /auth/verify-role for authoritative MongoDB check
@@ -130,35 +138,29 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   // --------------------------------------------------------------------------
-  // 3. ACCOUNT LIFECYCLE STATUS INTERCEPTION
+  // 3. ACCOUNT LIFECYCLE STATUS INTERCEPTION (AUD-H12)
+  // Uniformly enforces status === 'active' across all non-active statuses
+  // (suspended, pending_verification, invited, deactivated, archived, graduated).
+  // Returns JSON HTTP 403 for /api/* routes instead of 307 HTML redirects.
   // --------------------------------------------------------------------------
-  if (status === 'suspended') {
-    if (currentPath.startsWith('/api/')) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Collegiate account is under administrative hold.',
-          data: null,
-          error: {
-            code: 'ACCOUNT_SUSPENDED',
-            message: 'Your account has been suspended by campus administration.',
-          },
-          timestamp: new Date().toISOString(),
+  const lifecycleDecision = evaluateAccountLifecycleGate(status, currentPath);
+  if (lifecycleDecision.action === 'json_403') {
+    return NextResponse.json(
+      {
+        success: false,
+        message: lifecycleDecision.message,
+        data: null,
+        error: {
+          code: lifecycleDecision.code,
+          message: lifecycleDecision.message,
         },
-        { status: 403 }
-      );
-    }
-    if (currentPath !== '/account-suspended') {
-      return NextResponse.redirect(new URL('/account-suspended', req.url));
-    }
+        timestamp: new Date().toISOString(),
+      },
+      { status: 403 }
+    );
   }
-
-  if (status === 'pending_verification' && currentPath !== '/pending-approval') {
-    return NextResponse.redirect(new URL('/pending-approval', req.url));
-  }
-
-  if (status === 'deactivated' || status === 'archived') {
-    return NextResponse.redirect(new URL('/unauthorized', req.url));
+  if (lifecycleDecision.action === 'redirect') {
+    return NextResponse.redirect(new URL(lifecycleDecision.destination, req.url));
   }
 
   // --------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  * and RBAC-gated Targeted Alert Broadcast modal for Faculty, Admin, and Super Admin.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { GlassPanel, Button, Badge, EmptyState } from '@/components/ui';
 import {
@@ -92,6 +92,11 @@ export function NotificationCenterView({
   const [markingAll, setMarkingAll] = useState<boolean>(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [isBroadcastOpen, setIsBroadcastOpen] = useState<boolean>(false);
+  const [mountedNow, setMountedNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    setMountedNow(Date.now());
+  }, []);
 
   // Preferences state
   const [prefs, setPrefs] = useState<NotificationPreferenceDTO>(initialPreferences);
@@ -477,7 +482,14 @@ export function NotificationCenterView({
                           {item.message}
                         </p>
                         <p className="text-muted-foreground/80 text-[11px]">
-                          {formatRelativeNotificationTime(item.createdAt)}
+                          {mountedNow !== null
+                            ? formatRelativeNotificationTime(item.createdAt, mountedNow)
+                            : new Intl.DateTimeFormat('en-IN', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                                timeZone: 'Asia/Kolkata',
+                              }).format(new Date(item.createdAt))}
                         </p>
                       </div>
                     </div>

@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { objectIdSchema } from './common-schemas';
+import { objectIdSchema, safeHttpUrlSchema } from './common-schemas';
 
 /**
  * Statutory grievance categories.
@@ -52,7 +52,7 @@ export const complaintRecipientRoleSchema = z.enum(['hod', 'director']);
  */
 export const complaintAttachmentSchema = z.object({
   name: z.string().trim().min(1, 'Attachment name is required').max(150),
-  url: z.string().trim().url('Invalid attachment URL'),
+  url: safeHttpUrlSchema,
   sizeBytes: z
     .number()
     .int()
@@ -156,6 +156,19 @@ export const assignComplaintSchema = z.object({
 export type AssignComplaintInput = z.infer<typeof assignComplaintSchema>;
 
 /**
+ * Allowed sortable fields for complaint listing queries (AUD-C01 / AUD-L03).
+ */
+export const COMPLAINT_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'priority',
+  'status',
+  'sla.deadline',
+] as const;
+
+export type ComplaintSortField = (typeof COMPLAINT_SORT_FIELDS)[number];
+
+/**
  * Complaint query parameters schema.
  */
 export const complaintQuerySchema = z.object({
@@ -175,7 +188,7 @@ export const complaintQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  sortBy: z.string().trim().default('createdAt'),
+  sortBy: z.enum(COMPLAINT_SORT_FIELDS).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 

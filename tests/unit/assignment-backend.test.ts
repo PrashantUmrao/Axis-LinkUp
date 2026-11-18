@@ -955,7 +955,9 @@ describe('Phase 5.7: Assignment Management Backend Suite', () => {
 
       const envelope = AssignmentService.getUploadSignature(facultySession);
       assert.strictEqual(envelope.isMock, true);
-      assert.strictEqual(envelope.folder, 'axis-linkup/assignments');
+      assert.strictEqual(envelope.folder, `axis-linkup/assignments/${facultySession.userId}`);
+      assert.ok(envelope.allowedFormats.includes('pdf'));
+      assert.strictEqual(envelope.maxFileSize, 25 * 1024 * 1024);
       assert.ok(envelope.timestamp);
 
       if (origKey) process.env.CLOUDINARY_API_KEY = origKey;

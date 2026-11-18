@@ -7,7 +7,7 @@
  * Styled with the approved amber accent palette and controlled glassmorphism.
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage, Badge, Button } from '@/components/ui';
 import type { UserDTO } from '@/types/user';
@@ -26,21 +26,23 @@ interface WelcomeBannerProps {
 }
 
 export function AdminWelcomeBanner({ user }: WelcomeBannerProps) {
-  // Personalized greeting based on current local hour
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
+  // Hydration-safe greeting & formatted date (computed post-mount to match client timezone)
+  const [greeting, setGreeting] = useState<string>('Welcome');
+  const [formattedDate, setFormattedDate] = useState<string>('');
 
-  // Formatted date string in Indian English locale
-  const formattedDate = new Intl.DateTimeFormat('en-IN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date());
+  useEffect(() => {
+    const now = new Date();
+    const hour = now.getHours();
+    setGreeting(hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening');
+    setFormattedDate(
+      new Intl.DateTimeFormat('en-IN', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }).format(now),
+    );
+  }, []);
 
   const displayName =
     user.fullName || (user.email ? user.email.split('@')[0] : '') || 'Administrator';
@@ -53,7 +55,7 @@ export function AdminWelcomeBanner({ user }: WelcomeBannerProps) {
       .map((part) => part[0]?.toUpperCase())
       .join('') || 'AD';
 
-  const staffId = user.adminProfile?.adminStaffId || 'ADM-010482';
+  const staffId = user.adminProfile?.adminStaffId || 'Verified Staff';
   const administrativeDomain =
     user.adminProfile?.administrativeDomain || 'Academic Affairs & Registry';
   const queueScopes =
@@ -82,7 +84,7 @@ export function AdminWelcomeBanner({ user }: WelcomeBannerProps) {
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-muted-foreground text-xs font-medium">
-                {getGreeting()}, Administrator
+                {greeting}, Administrator
               </span>
               <Badge variant="warning" className="gap-1 text-[10px] font-semibold">
                 <Sparkles className="size-3" />
@@ -116,10 +118,12 @@ export function AdminWelcomeBanner({ user }: WelcomeBannerProps) {
 
         {/* Right: Date Stamp & Profile Action */}
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center lg:flex-col lg:items-end">
-          <div className="text-muted-foreground border-border/40 bg-muted/20 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
-            <CalendarIcon className="size-3.5 text-amber-500" />
-            <span>{formattedDate}</span>
-          </div>
+          {formattedDate && (
+            <div className="text-muted-foreground border-border/40 bg-muted/20 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
+              <CalendarIcon className="size-3.5 text-amber-500" />
+              <span>{formattedDate}</span>
+            </div>
+          )}
 
           <Button asChild variant="glass-primary" size="sm" className="gap-2">
             <Link href="/shared/profile">

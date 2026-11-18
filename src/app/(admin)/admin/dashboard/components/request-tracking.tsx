@@ -20,7 +20,11 @@ import {
 } from '@/components/ui';
 import { Inbox, Clock, QrCode, ShieldCheck, CheckCircle2, ChevronRight } from 'lucide-react';
 
-export function AdminRequestTracking() {
+interface AdminRequestTrackingProps {
+  pendingRequests?: number;
+}
+
+export function AdminRequestTracking({ pendingRequests = 0 }: AdminRequestTrackingProps) {
   return (
     <Card variant="glass" className="space-y-4 p-6 shadow-sm">
       {/* Header */}
@@ -41,8 +45,8 @@ export function AdminRequestTracking() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px]">
-            Live Queue
+          <Badge variant={pendingRequests > 0 ? 'warning' : 'outline'} className="text-[10px]">
+            {pendingRequests > 0 ? `${pendingRequests} Pending` : 'Live Queue'}
           </Badge>
           <Button size="sm" variant="outline" asChild className="text-xs h-7">
             <Link href="/admin/requests" className="flex items-center gap-1">
@@ -54,13 +58,32 @@ export function AdminRequestTracking() {
       </CardHeader>
 
       <CardContent className="space-y-4 p-0">
-        {/* Empty State */}
-        <EmptyState
-          icon={<Inbox className="size-6 stroke-[1.5] text-amber-500" />}
-          title="Service Requisition Queue Empty"
-          description="All student leave applications, bona fide certificate requests, hostel night passes, and departmental clearances are processed here with verifiable approval audit trails."
-          className="border-border/60 bg-muted/10 py-10"
-        />
+        {pendingRequests > 0 ? (
+          <div className="border-amber-500/30 bg-amber-500/5 flex flex-col items-start justify-between gap-3 rounded-xl border p-4 sm:flex-row sm:items-center">
+            <div className="space-y-1">
+              <p className="font-heading text-foreground text-sm font-semibold">
+                {pendingRequests} Student Requisition{pendingRequests === 1 ? '' : 's'} Awaiting Review
+              </p>
+              <p className="text-muted-foreground text-xs">
+                Active bonafide certificates, leave applications, and departmental clearances are
+                queued for approval within the 48-hour SLA.
+              </p>
+            </div>
+            <Button size="sm" asChild className="shrink-0 text-xs">
+              <Link href="/admin/requests">
+                Review Queue
+                <ChevronRight className="ml-1 size-3.5" />
+              </Link>
+            </Button>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<Inbox className="size-6 stroke-[1.5] text-amber-500" />}
+            title="Service Requisition Queue Empty"
+            description="All student leave applications, bona fide certificate requests, hostel night passes, and departmental clearances are processed here with verifiable approval audit trails."
+            className="border-border/60 bg-muted/10 py-10"
+          />
+        )}
 
         {/* SLA Standards & Verification Protocol */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

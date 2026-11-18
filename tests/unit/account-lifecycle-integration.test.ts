@@ -453,13 +453,15 @@ describe('Phase 5.2.8 — Journey 7, 8 & 9: Forgot Password, Proof Token & Sessi
       identifier: 'dr.anand@axiscolleges.in',
     });
     assert.strictEqual(resEmail.message, PasswordRecoveryService.GENERIC_REQUEST_NOTICE);
-    assert.strictEqual(resEmail.email, activeFaculty.email);
+    assert.strictEqual(resEmail.email, undefined);
+    assert.strictEqual(resEmail.maskedEmail, 'dr***@axiscolleges.in');
 
     const resUser = await PasswordRecoveryService.requestRecovery({
       identifier: 'dr.anand',
     });
     assert.strictEqual(resUser.message, PasswordRecoveryService.GENERIC_REQUEST_NOTICE);
-    assert.strictEqual(resUser.email, activeFaculty.email);
+    assert.strictEqual(resUser.email, undefined);
+    assert.strictEqual(resUser.maskedEmail, 'dr***@axiscolleges.in');
 
     // Non-existent user returns identical message without disclosing 404
     mock.method(UserRepository, 'findByIdentifier', async () => null);
@@ -560,6 +562,10 @@ describe('Phase 5.2.8 — Journey 10: Suspended Account Invariant Enforcement', 
       email: 'vikram.roy@axiscolleges.in',
       status: 'suspended',
       authProviderId: 'clerk_vikram_706',
+      activationTokenHash: ActivationService.hashToken(
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      ),
+      activationTokenExpiresAt: new Date(Date.now() + 300000),
     } as unknown as IUser;
 
     // Reset password attempt

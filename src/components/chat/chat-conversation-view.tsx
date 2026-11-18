@@ -16,8 +16,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Avatar, AvatarFallback, Button, Input, Badge } from '@/components/ui';
 import {
   Send,
-  Paperclip,
-  Smile,
   Info,
   ArrowLeft,
   Check,
@@ -27,6 +25,8 @@ import {
   Users,
   Trash2,
   Loader2,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '@/types/chat';
 import type { UserRole } from '@/types/user';
@@ -46,6 +46,8 @@ interface ChatConversationViewProps {
   currentUserId: string;
   isInfoPanelOpen: boolean;
   ablyStatus?: AblyConnectionStatus;
+  errorBanner?: string | null;
+  onDismissError?: () => void;
 }
 
 export function ChatConversationView({
@@ -62,6 +64,8 @@ export function ChatConversationView({
   currentUserId,
   isInfoPanelOpen,
   ablyStatus = 'offline',
+  errorBanner = null,
+  onDismissError,
 }: ChatConversationViewProps) {
   const [inputText, setInputText] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -377,6 +381,29 @@ export function ChatConversationView({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Visible Error Banner for failed send/delete/history calls */}
+      {errorBanner && (
+        <div
+          role="alert"
+          className="border-destructive/30 bg-destructive/10 text-destructive flex items-center justify-between gap-2 border-t px-4 py-2 text-xs"
+        >
+          <span className="flex items-center gap-1.5 font-medium">
+            <AlertCircle className="size-3.5 shrink-0" />
+            {errorBanner}
+          </span>
+          {onDismissError && (
+            <button
+              type="button"
+              onClick={onDismissError}
+              aria-label="Dismiss error message"
+              className="hover:bg-destructive/15 rounded p-0.5"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Broadcast Restricted Notice */}
       {isRestrictedFromPosting && (
         <div className="flex items-center justify-center gap-2 border-t border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -393,28 +420,6 @@ export function ChatConversationView({
         onSubmit={handleSend}
         className="border-glass-border bg-card/60 flex items-center gap-2 border-t p-3 backdrop-blur-xl"
       >
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={isRestrictedFromPosting}
-          className="text-muted-foreground hover:text-foreground h-9 shrink-0 p-2"
-          title="Attach document or coursework"
-        >
-          <Paperclip className="size-4" />
-        </Button>
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={isRestrictedFromPosting}
-          className="text-muted-foreground hover:text-foreground hidden h-9 shrink-0 p-2 sm:flex"
-          title="Insert emoji"
-        >
-          <Smile className="size-4" />
-        </Button>
-
         <Input
           placeholder={
             isRestrictedFromPosting

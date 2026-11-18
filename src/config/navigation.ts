@@ -242,7 +242,7 @@ export const MASTER_NAVIGATION_ITEMS: NavItem[] = [
     title: 'Grading & Submissions',
     href: '/faculty/assignments',
     iconName: 'ClipboardCheck',
-    roles: ['faculty', 'admin', 'super_admin'],
+    roles: ['faculty'],
     permission: PERMISSIONS.ASSIGNMENTS_CREATE_GRADE,
     disabled: false,
     category: 'modules',

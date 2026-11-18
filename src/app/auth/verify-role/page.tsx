@@ -42,9 +42,6 @@ export default async function VerifyRolePage({ searchParams }: VerifyRolePagePro
     try {
       const client = await clerkClient();
       const clerkUser = await client.users.getUser(userId);
-      const primaryEmail =
-        clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)
-          ?.emailAddress || clerkUser.emailAddresses[0]?.emailAddress;
       const username = clerkUser.username;
 
       for (const emailObj of clerkUser.emailAddresses) {
@@ -59,35 +56,6 @@ export default async function VerifyRolePage({ searchParams }: VerifyRolePagePro
       if (user) {
         await UserRepository.linkAuthProviderId(user.email, userId);
         logger.info(`[VerifyRole] Linked Clerk authProviderId (${userId}) to user ${user.email}`);
-      } else if (
-        primaryEmail &&
-        (primaryEmail.toLowerCase().trim() === 'hey.prashantumrao@gmail.com' ||
-          username?.toLowerCase().trim() === 'admin01' ||
-          (clerkUser.publicMetadata as Record<string, unknown>)?.role === 'super_admin')
-      ) {
-        // Authoritative Super Admin Ingress Bootstrap:
-        // Automatically sync verified Clerk Super Administrator identity to MongoDB
-        user = await UserRepository.create({
-          email: primaryEmail.toLowerCase().trim(),
-          fullName:
-            `${clerkUser.firstName ?? ''} ${clerkUser.lastName ?? ''}`.trim() ||
-            'System Administrator',
-          username: clerkUser.username || 'admin01',
-          role: 'super_admin',
-          adminSubRole: 'sys_admin',
-          status: 'active',
-          isProfileComplete: true,
-          authProviderId: userId,
-          adminProfile: {
-            adminStaffId: 'SA-ADMIN01',
-            administrativeDomain: 'Central IT Administration',
-            assignedQueueScopes: ['all'],
-            emergencyOverridePermitted: true,
-          },
-        });
-        logger.info(
-          `[VerifyRole] Bootstrapped verified Super Administrator: ${user.email} (${userId})`
-        );
       }
     } catch (lookupErr) {
       logger.error('[VerifyRole] Failed resolving Clerk user profile during verify', {
@@ -96,7 +64,7 @@ export default async function VerifyRolePage({ searchParams }: VerifyRolePagePro
     }
   }
 
-  // 4. Closed Registration Gate: Account must exist in MongoDB
+  // 4. Closed Registration Gate: Account must be pre-provisioned in MongoDB (fail-closed)
   if (!user) {
     logger.warn(`[VerifyRole] Rejected unprovisioned user: ${userId}`);
     try {
@@ -104,7 +72,7 @@ export default async function VerifyRolePage({ searchParams }: VerifyRolePagePro
     } catch {
       // Non-fatal if response headers already committed
     }
-    redirect('/sign-in?error=not_provisioned');
+    redirect('/unauthorized?error=not_provisioned');
   }
 
   // 5. Account Lifecycle Status Ingress Gates

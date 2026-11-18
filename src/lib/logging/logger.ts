@@ -33,9 +33,34 @@ const SENSITIVE_KEY_PATTERNS = [
 ];
 
 /**
- * Deeply sanitizes objects to replace sensitive keys with '[REDACTED]'.
+ * Cycle-safe JSON serializer using a WeakSet so circular references in error
+ * or context payloads never crash the logger with TypeError (AUD-H15).
  */
-export function sanitizeLogData(data: unknown, depth: number = 0): unknown {
+export function safeJsonStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(value, (_key, val: unknown) => {
+    if (typeof val === 'bigint') {
+      return val.toString();
+    }
+    if (typeof val === 'object' && val !== null) {
+      if (seen.has(val)) {
+        return '[Circular]';
+      }
+      seen.add(val);
+    }
+    return val;
+  });
+}
+
+/**
+ * Deeply sanitizes objects to replace sensitive keys with '[REDACTED]'
+ * while breaking circular object references cleanly via WeakSet (AUD-H15).
+ */
+export function sanitizeLogData(
+  data: unknown,
+  depth: number = 0,
+  seen: WeakSet<object> = new WeakSet<object>()
+): unknown {
   if (depth > 6 || data === null || data === undefined) {
     return data;
   }
@@ -43,6 +68,11 @@ export function sanitizeLogData(data: unknown, depth: number = 0): unknown {
   if (typeof data !== 'object') {
     return data;
   }
+
+  if (seen.has(data)) {
+    return '[Circular]';
+  }
+  seen.add(data);
 
   if (data instanceof Error) {
     return {
@@ -53,7 +83,7 @@ export function sanitizeLogData(data: unknown, depth: number = 0): unknown {
   }
 
   if (Array.isArray(data)) {
-    return data.map((item) => sanitizeLogData(item, depth + 1));
+    return data.map((item) => sanitizeLogData(item, depth + 1, seen));
   }
 
   const sanitized: Record<string, unknown> = {};
@@ -62,7 +92,7 @@ export function sanitizeLogData(data: unknown, depth: number = 0): unknown {
     if (isSensitive) {
       sanitized[key] = '[REDACTED]';
     } else {
-      sanitized[key] = sanitizeLogData(value, depth + 1);
+      sanitized[key] = sanitizeLogData(value, depth + 1, seen);
     }
   }
 
@@ -107,8 +137,8 @@ class Logger {
     }
 
     if (isProd) {
-      // Structured JSON format in production
-      return JSON.stringify({
+      // Structured JSON format in production (cycle-safe)
+      return safeJsonStringify({
         timestamp,
         level: level.toUpperCase(),
         message,
@@ -117,12 +147,14 @@ class Logger {
       });
     }
 
-    // Human-readable format in development
+    // Human-readable format in development (cycle-safe)
     const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
     const contextStr =
-      Object.keys(mergedContext).length > 0 ? ` | context=${JSON.stringify(sanitizedContext)}` : '';
+      Object.keys(mergedContext).length > 0
+        ? ` | context=${safeJsonStringify(sanitizedContext)}`
+        : '';
     const errorStr =
-      formattedError !== undefined ? ` | error=${JSON.stringify(formattedError)}` : '';
+      formattedError !== undefined ? ` | error=${safeJsonStringify(formattedError)}` : '';
 
     return `${prefix} ${message}${contextStr}${errorStr}`;
   }

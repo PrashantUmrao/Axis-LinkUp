@@ -14,7 +14,6 @@ import { UserRepository } from '../../src/lib/db/repositories/user.repository';
 import { activateAccountSchema } from '../../src/lib/validations/activation.schema';
 import {
   ValidationError,
-  NotFoundError,
   ConflictError,
   ForbiddenError,
   AppError,
@@ -150,7 +149,7 @@ describe('Phase 5.2.5 — 2. Security Boundaries, Expiration & Replay Defense', 
       },
       (err: unknown) => {
         assert.ok(err instanceof ValidationError);
-        assert.ok(err.message.includes('already been used or is no longer valid'));
+        assert.ok(err.message.includes('already been used') || err.message.includes('no longer valid'));
         return true;
       }
     );
@@ -176,7 +175,7 @@ describe('Phase 5.2.5 — 2. Security Boundaries, Expiration & Replay Defense', 
       },
       (err: unknown) => {
         assert.ok(err instanceof ValidationError);
-        assert.ok(err.message.includes('Invalid or tampered'));
+        assert.ok(err.message.toLowerCase().includes('invalid') && err.message.toLowerCase().includes('tampered'));
         return true;
       }
     );
@@ -184,7 +183,7 @@ describe('Phase 5.2.5 — 2. Security Boundaries, Expiration & Replay Defense', 
     mock.reset();
   });
 
-  test('rejects invitation when institutional email does not match any collegiate user', async () => {
+  test('rejects invitation when institutional email does not match any collegiate user without leaking existence', async () => {
     mock.method(UserRepository, 'findByEmail', async () => null);
 
     await assert.rejects(
@@ -195,8 +194,8 @@ describe('Phase 5.2.5 — 2. Security Boundaries, Expiration & Replay Defense', 
         );
       },
       (err: unknown) => {
-        assert.ok(err instanceof NotFoundError);
-        assert.ok(err.message.includes('No collegiate account found'));
+        assert.ok(err instanceof ValidationError);
+        assert.equal(err.message.includes('No collegiate account found'), false);
         return true;
       }
     );

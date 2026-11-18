@@ -2,8 +2,7 @@
 
 /**
  * Faculty Dashboard Quick Actions Section.
- * Surfaces one-click navigation links to implemented routes and
- * clearly badges upcoming modules with Phase 5 tooltips.
+ * Surfaces one-click navigation links to implemented faculty workflows.
  */
 
 import React from 'react';
@@ -15,9 +14,6 @@ import {
   CardDescription,
   CardContent,
   Badge,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
 } from '@/components/ui';
 import {
   UserCircle,
@@ -25,7 +21,7 @@ import {
   Scale,
   Megaphone,
   ClipboardCheck,
-  Calendar,
+  Building2,
   Sparkles,
   ArrowRight,
 } from 'lucide-react';
@@ -38,7 +34,6 @@ export function FacultyQuickActions() {
       description: 'Moderate academic cohorts & advise students',
       href: '/faculty/messages',
       icon: MessageSquare,
-      isLive: true,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
     },
@@ -48,7 +43,6 @@ export function FacultyQuickActions() {
       description: 'HOD department grievance adjudication & SLA',
       href: '/faculty/complaints',
       icon: Scale,
-      isLive: true,
       color: 'text-indigo-500',
       bgColor: 'bg-indigo-500/10',
     },
@@ -58,7 +52,6 @@ export function FacultyQuickActions() {
       description: 'Review designations, office hours, & IAM status',
       href: '/shared/profile',
       icon: UserCircle,
-      isLive: true,
       color: 'text-emerald-500',
       bgColor: 'bg-emerald-500/10',
     },
@@ -68,10 +61,8 @@ export function FacultyQuickActions() {
       description: 'Publish course circulars to enrolled batches',
       href: '/faculty/notices',
       icon: Megaphone,
-      isLive: false,
       color: 'text-amber-500',
       bgColor: 'bg-amber-500/10',
-      tooltip: 'Course notice publishing will activate in Phase 5.',
     },
     {
       id: 'gradebook',
@@ -79,21 +70,17 @@ export function FacultyQuickActions() {
       description: 'Assess coursework submissions & record rubrics',
       href: '/faculty/assignments',
       icon: ClipboardCheck,
-      isLive: false,
       color: 'text-cyan-500',
       bgColor: 'bg-cyan-500/10',
-      tooltip: 'Coursework evaluation workflows will activate in Phase 5.',
     },
     {
-      id: 'teaching-calendar',
-      title: 'Instructional Timetable',
-      description: 'Lecture periods, lab hours, & invigilation duties',
-      href: '/faculty/calendar',
-      icon: Calendar,
-      isLive: false,
+      id: 'facility-spaces',
+      title: 'Facility & Hall Bookings',
+      description: 'Reserve seminar halls, labs, and campus spaces',
+      href: '/faculty/spaces',
+      icon: Building2,
       color: 'text-rose-500',
       bgColor: 'bg-rose-500/10',
-      tooltip: 'Faculty timetable schedule will link in Phase 5.',
     },
   ];
 
@@ -107,7 +94,7 @@ export function FacultyQuickActions() {
           <div>
             <CardTitle className="text-base font-semibold">Faculty Quick Actions</CardTitle>
             <CardDescription className="text-xs">
-              Direct ingress to verified faculty services and upcoming academic workflows
+              Direct ingress to verified faculty services and academic workflows
             </CardDescription>
           </div>
         </div>
@@ -121,72 +108,35 @@ export function FacultyQuickActions() {
         {actions.map((action) => {
           const Icon = action.icon;
 
-          if (action.isLive) {
-            return (
-              <Link
-                key={action.id}
-                href={action.href}
-                className="group border-border/40 bg-muted/20 hover:bg-muted/40 relative flex flex-col justify-between rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-500/40 hover:shadow-xs"
-              >
-                <div className="flex items-center justify-between pb-2">
-                  <div
-                    className={`flex size-9 items-center justify-center rounded-lg ${action.bgColor} ${action.color}`}
-                  >
-                    <Icon className="size-4" />
-                  </div>
-                  <Badge variant="success" className="px-1.5 py-0 text-[9px] font-normal">
-                    Live
-                  </Badge>
-                </div>
-
-                <div className="space-y-0.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-heading text-foreground text-xs font-semibold transition-colors group-hover:text-emerald-500">
-                      {action.title}
-                    </span>
-                    <ArrowRight className="text-muted-foreground size-3 transition-all group-hover:translate-x-0.5 group-hover:text-emerald-500" />
-                  </div>
-                  <p className="text-muted-foreground text-[11px] leading-relaxed">
-                    {action.description}
-                  </p>
-                </div>
-              </Link>
-            );
-          }
-
           return (
-            <Tooltip key={action.id}>
-              <TooltipTrigger asChild>
+            <Link
+              key={action.id}
+              href={action.href}
+              className="group border-border/40 bg-muted/20 hover:bg-muted/40 relative flex flex-col justify-between rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-500/40 hover:shadow-xs"
+            >
+              <div className="flex items-center justify-between pb-2">
                 <div
-                  className="border-border/30 bg-muted/10 flex cursor-not-allowed flex-col justify-between rounded-xl border p-4 opacity-60 select-none"
-                  aria-disabled="true"
+                  className={`flex size-9 items-center justify-center rounded-lg ${action.bgColor} ${action.color}`}
                 >
-                  <div className="flex items-center justify-between pb-2">
-                    <div
-                      className={`flex size-9 items-center justify-center rounded-lg ${action.bgColor} ${action.color}`}
-                    >
-                      <Icon className="size-4" />
-                    </div>
-                    <Badge variant="outline" className="px-1.5 py-0 text-[9px] font-normal">
-                      Phase 5
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-0.5">
-                    <span className="font-heading text-foreground text-xs font-semibold">
-                      {action.title}
-                    </span>
-                    <p className="text-muted-foreground text-[11px] leading-relaxed">
-                      {action.description}
-                    </p>
-                  </div>
+                  <Icon className="size-4" />
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <p className="font-semibold">{action.title}</p>
-                <p className="text-muted-foreground text-[10px]">{action.tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
+                <Badge variant="success" className="px-1.5 py-0 text-[9px] font-normal">
+                  Live
+                </Badge>
+              </div>
+
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-heading text-foreground text-xs font-semibold transition-colors group-hover:text-emerald-500">
+                    {action.title}
+                  </span>
+                  <ArrowRight className="text-muted-foreground size-3 transition-all group-hover:translate-x-0.5 group-hover:text-emerald-500" />
+                </div>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  {action.description}
+                </p>
+              </div>
+            </Link>
           );
         })}
       </CardContent>

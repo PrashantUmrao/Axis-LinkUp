@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { objectIdSchema } from './common-schemas';
+import { objectIdSchema, safeHttpUrlSchema } from './common-schemas';
 
 export const ALLOWED_ATTACHMENT_MIME_TYPES = [
   'application/pdf',
@@ -29,7 +29,7 @@ export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export const attachmentInputSchema = z.object({
   name: z.string().trim().min(1, 'Attachment name is required').max(150),
-  url: z.string().trim().url('Invalid attachment URL format'),
+  url: safeHttpUrlSchema,
   sizeBytes: z
     .number()
     .int()

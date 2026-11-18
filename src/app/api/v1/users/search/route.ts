@@ -5,20 +5,21 @@ import { UserRepository } from '@/lib/db/repositories/user.repository';
 import { successResponse } from '@/lib/api/api-response';
 import { handleApiError } from '@/lib/api/api-error-handler';
 import { ForbiddenError } from '@/lib/errors/app-error';
+import {
+  checkRateLimit,
+  createRateLimitErrorResponse,
+} from '@/lib/security/rate-limiter';
 import type { UserRole } from '@/types/user';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/v1/users/search
- * Public collegiate user directory search endpoint.
- *
- * Conforms to Zero-Trust architecture:
- * - Requires authenticated session
- * - Restricts to active collegiate accounts
- * - Excludes currently authenticated user
- * - Returns only safe public directory DTO fields (no passwords, tokens, or private secrets)
- * - Supports searching by name, username (@handle), institutional email, roll number, or employee ID
+ * Collegiate user directory search endpoint.
+ * Enforces:
+ * - Authenticated active session
+ * - Per-user sliding-window rate limit (30/60s, AUD-H11)
+ * - Student PII minimization: strips email and rollNumber for student callers (AUD-M05)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +29,17 @@ export async function GET(req: NextRequest) {
       throw new ForbiddenError('Only active collegiate accounts can access the user directory.');
     }
 
-    await connectToDatabase();
+    const rateLimit = checkRateLimit(`users:search:${session.userId}`, {
+      maxRequests: 30,
+      windowMs: 60_000,
+    });
+    if (!rateLimit.allowed) {
+      return createRateLimitErrorResponse(rateLimit);
+    }
+
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
 
     const searchParams = req.nextUrl.searchParams;
     const q = searchParams.get('q') || '';
@@ -50,7 +61,23 @@ export async function GET(req: NextRequest) {
       limit,
     });
 
-    return successResponse(users, 'Collegiate directory search results');
+    // AUD-M05: Strip email & rollNumber PII when directory is queried by a student
+    const projectedUsers =
+      session.role === 'student'
+        ? users.map(({ id, fullName, username, role, adminSubRole, avatarUrl, departmentName, departmentId: deptId, designation }) => ({
+            id,
+            fullName,
+            username,
+            role,
+            adminSubRole,
+            avatarUrl,
+            departmentName,
+            departmentId: deptId,
+            designation,
+          }))
+        : users;
+
+    return successResponse(projectedUsers, 'Collegiate directory search results');
   } catch (error) {
     return handleApiError(error);
   }

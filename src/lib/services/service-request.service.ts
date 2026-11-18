@@ -144,7 +144,7 @@ export class ServiceRequestService {
       filter.priority = query.priority;
     }
     if (query.search && query.search.trim()) {
-      const term = query.search.trim();
+      const term = query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$or = [
         { ticketNumber: { $regex: term, $options: 'i' } },
         { subject: { $regex: term, $options: 'i' } },
@@ -210,7 +210,7 @@ export class ServiceRequestService {
       filter.priority = query.priority;
     }
     if (query.search && query.search.trim()) {
-      const term = query.search.trim();
+      const term = query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$or = [
         { ticketNumber: { $regex: term, $options: 'i' } },
         { subject: { $regex: term, $options: 'i' } },

@@ -55,6 +55,32 @@ function escapeRegex(value: string): string {
 
 export class FacilityService {
   /**
+   * Per-facility async critical-section locks preventing intra-process TOCTOU races
+   * on concurrent booking approvals and auto-approved reservations (AUD-C10).
+   */
+  private static readonly facilityLocks = new Map<string, Promise<void>>();
+
+  private static async withFacilityLock<T>(facilityId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.facilityLocks.get(facilityId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.facilityLocks.set(facilityId, tail);
+
+    await previous;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (this.facilityLocks.get(facilityId) === tail) {
+        this.facilityLocks.delete(facilityId);
+      }
+    }
+  }
+
+  /**
    * Evaluates SPACES_BOOK permission against RBAC matrix (faculty OWN, admin DEPT, super_admin ALLOW; student DENY).
    */
   private static canBookSpace(session: UserSession): boolean {
@@ -360,7 +386,7 @@ export class FacilityService {
     const bookingCode = await FacilityBookingRepository.getNextBookingCode();
     const shouldAutoApprove = session.role === 'super_admin' && data.autoApprove === true;
 
-    const created = await FacilityBookingRepository.create({
+    const bookingPayload = {
       bookingCode,
       facilityId: facility._id,
       facilitySnapshot: {
@@ -377,19 +403,78 @@ export class FacilityService {
       expectedAttendees: data.expectedAttendees,
       startTime,
       endTime,
-      status: shouldAutoApprove ? 'approved' : 'pending',
+      status: (shouldAutoApprove ? 'approved' : 'pending') as 'approved' | 'pending',
       reviewedBy: shouldAutoApprove ? new Types.ObjectId(session.userId) : null,
       reviewedAt: shouldAutoApprove ? new Date() : null,
       reviewRemarks: shouldAutoApprove ? 'Auto-approved by Super Administrator.' : null,
-    });
+    };
+
+    if (!shouldAutoApprove) {
+      const created = await FacilityBookingRepository.create(bookingPayload);
+      return toFacilityBookingDTO(created);
+    }
+
+    // AUD-C10: Serialize auto-approved reservations per facility + run inside transaction (with standalone re-check)
+    const created = await this.withFacilityLock(facility._id.toString(), () =>
+      FacilityBookingRepository.runInTransaction(async (dbSession) => {
+        const recheckConflicts = await FacilityBookingRepository.findConflictingBookings(
+          facility._id.toString(),
+          startTime,
+          endTime,
+          undefined,
+          dbSession
+        );
+
+        if (recheckConflicts.length > 0) {
+          const firstConflict = recheckConflicts[0]!;
+          throw new ConflictError(
+            `Time slot conflict: "${facility.name}" is already booked (${firstConflict.bookingCode}) during the requested window.`,
+            {
+              conflictingBookingCode: firstConflict.bookingCode,
+              conflictingStartTime: firstConflict.startTime.toISOString(),
+              conflictingEndTime: firstConflict.endTime.toISOString(),
+            }
+          );
+        }
+
+        const doc = await FacilityBookingRepository.create(bookingPayload, dbSession);
+
+        // Standalone fallback safety net: if no replica-set transaction was active, verify no parallel writer won the slot
+        if (!dbSession) {
+          const postWriteConflicts = await FacilityBookingRepository.findConflictingBookings(
+            facility._id.toString(),
+            startTime,
+            endTime,
+            doc._id.toString()
+          );
+          if (postWriteConflicts.length > 0) {
+            await FacilityBookingRepository.update(doc._id.toString(), {
+              status: 'cancelled',
+              cancellationReason: 'Automatically cancelled due to concurrent double-booking conflict.',
+            });
+            const winner = postWriteConflicts[0]!;
+            throw new ConflictError(
+              `Time slot conflict: "${facility.name}" was simultaneously booked (${winner.bookingCode}) during this window.`,
+              {
+                conflictingBookingCode: winner.bookingCode,
+                conflictingStartTime: winner.startTime.toISOString(),
+                conflictingEndTime: winner.endTime.toISOString(),
+              }
+            );
+          }
+        }
+
+        return doc;
+      })
+    );
 
     return toFacilityBookingDTO(created);
   }
 
   /**
    * Approves or rejects a pending space booking request.
-   * Re-runs atomic overlap detection before committing approval to eliminate race conditions
-   * between competing pending requests.
+   * Executes inside a per-facility lock + MongoDB transaction (with standalone fallback) and
+   * commits via atomic `{ _id, status: 'pending' }` conditional update to eliminate TOCTOU races (AUD-C10).
    */
   public static async reviewBooking(
     session: UserSession,
@@ -402,14 +487,14 @@ export class FacilityService {
       );
     }
 
-    const booking = await FacilityBookingRepository.findById(bookingId);
-    if (!booking) {
+    const initialBooking = await FacilityBookingRepository.findById(bookingId);
+    if (!initialBooking) {
       throw new NotFoundError('Facility booking', bookingId);
     }
 
-    if (booking.status !== 'pending') {
+    if (initialBooking.status !== 'pending') {
       throw new BadRequestError(
-        `Invalid status transition: only pending bookings can be reviewed (current status: '${booking.status}').`
+        `Invalid status transition: only pending bookings can be reviewed (current status: '${initialBooking.status}').`
       );
     }
 
@@ -421,49 +506,102 @@ export class FacilityService {
       }
     }
 
-    if (input.action === 'approve') {
-      // Defensive check: verify facility is still available
-      const facility = await FacilityRepository.findById(booking.facilityId.toString());
-      if (facility && facility.status !== 'available') {
-        throw new BadRequestError(
-          `Cannot approve booking: "${facility.name}" is currently marked as ${facility.status}.`
-        );
-      }
-
-      // CRITICAL DOUBLE-BOOKING GUARD ON APPROVAL:
-      // Re-verify against all currently approved bookings so two competing pending requests
-      // for overlapping slots can NEVER both be approved.
-      const conflicts = await FacilityBookingRepository.findConflictingBookings(
-        booking.facilityId.toString(),
-        new Date(booking.startTime),
-        new Date(booking.endTime),
-        booking._id.toString()
-      );
-
-      if (conflicts.length > 0) {
-        const firstConflict = conflicts[0]!;
-        throw new ConflictError(
-          `Double-booking conflict: "${booking.facilitySnapshot.name}" already has an approved booking (${firstConflict.bookingCode}) overlapping this time slot.`,
-          {
-            conflictingBookingCode: firstConflict.bookingCode,
-            conflictingStartTime: firstConflict.startTime.toISOString(),
-            conflictingEndTime: firstConflict.endTime.toISOString(),
-          }
-        );
-      }
-    }
-
     const nextStatus = input.action === 'approve' ? 'approved' : 'rejected';
-    const updated = await FacilityBookingRepository.update(bookingId, {
-      status: nextStatus,
-      reviewedBy: new Types.ObjectId(session.userId),
-      reviewedAt: new Date(),
-      reviewRemarks: input.remarks ? input.remarks.trim() : null,
-    });
 
-    if (!updated) {
-      throw new NotFoundError('Facility booking', bookingId);
-    }
+    const { booking, updated } = await this.withFacilityLock(
+      initialBooking.facilityId.toString(),
+      () =>
+        FacilityBookingRepository.runInTransaction(async (dbSession) => {
+          const freshBooking = await FacilityBookingRepository.findById(bookingId, dbSession);
+          if (!freshBooking) {
+            throw new NotFoundError('Facility booking', bookingId);
+          }
+          if (freshBooking.status !== 'pending') {
+            throw new ConflictError(
+              `Booking "${freshBooking.bookingCode}" was already ${freshBooking.status} by another reviewer.`
+            );
+          }
+
+          if (input.action === 'approve') {
+            const facility = await FacilityRepository.findById(freshBooking.facilityId.toString());
+            if (facility && facility.status !== 'available') {
+              throw new BadRequestError(
+                `Cannot approve booking: "${facility.name}" is currently marked as ${facility.status}.`
+              );
+            }
+
+            // CRITICAL DOUBLE-BOOKING GUARD ON APPROVAL (inside lock + transaction)
+            const conflicts = await FacilityBookingRepository.findConflictingBookings(
+              freshBooking.facilityId.toString(),
+              new Date(freshBooking.startTime),
+              new Date(freshBooking.endTime),
+              freshBooking._id.toString(),
+              dbSession
+            );
+
+            if (conflicts.length > 0) {
+              const firstConflict = conflicts[0]!;
+              throw new ConflictError(
+                `Double-booking conflict: "${freshBooking.facilitySnapshot.name}" already has an approved booking (${firstConflict.bookingCode}) overlapping this time slot.`,
+                {
+                  conflictingBookingCode: firstConflict.bookingCode,
+                  conflictingStartTime: firstConflict.startTime.toISOString(),
+                  conflictingEndTime: firstConflict.endTime.toISOString(),
+                }
+              );
+            }
+          }
+
+          // Atomic conditional transition: succeeds ONLY if document is still 'pending'
+          const saved = await FacilityBookingRepository.update(
+            bookingId,
+            {
+              status: nextStatus,
+              reviewedBy: new Types.ObjectId(session.userId),
+              reviewedAt: new Date(),
+              reviewRemarks: input.remarks ? input.remarks.trim() : null,
+            },
+            { expectedStatus: 'pending', session: dbSession }
+          );
+
+          if (!saved) {
+            throw new ConflictError(
+              `Booking "${freshBooking.bookingCode}" is no longer pending and could not be updated atomically.`
+            );
+          }
+
+          // Standalone fallback re-check: verify no parallel instance approved an overlapping slot
+          if (input.action === 'approve' && !dbSession) {
+            const postApproveConflicts = await FacilityBookingRepository.findConflictingBookings(
+              freshBooking.facilityId.toString(),
+              new Date(freshBooking.startTime),
+              new Date(freshBooking.endTime),
+              saved._id.toString()
+            );
+
+            if (postApproveConflicts.length > 0) {
+              // Roll back approval atomically to preserve zero double-booking invariant
+              await FacilityBookingRepository.update(bookingId, {
+                status: 'pending',
+                reviewedBy: null,
+                reviewedAt: null,
+                reviewRemarks: null,
+              });
+              const winner = postApproveConflicts[0]!;
+              throw new ConflictError(
+                `Double-booking conflict: "${freshBooking.facilitySnapshot.name}" already has an approved booking (${winner.bookingCode}) overlapping this time slot.`,
+                {
+                  conflictingBookingCode: winner.bookingCode,
+                  conflictingStartTime: winner.startTime.toISOString(),
+                  conflictingEndTime: winner.endTime.toISOString(),
+                }
+              );
+            }
+          }
+
+          return { booking: freshBooking, updated: saved };
+        })
+    );
 
     // Real-time Ably notification with graceful degradation
     try {

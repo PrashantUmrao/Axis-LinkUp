@@ -65,6 +65,27 @@ export const searchQuerySchema = z.object({
 export type SearchQueryParams = z.infer<typeof searchQuerySchema>;
 
 /**
+ * Validates that a URL is syntactically valid AND strictly uses http: or https: protocol,
+ * rejecting XSS/injection schemes like javascript:, data:, vbscript:, or file: (AUD-M01).
+ */
+export function isSafeHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export const safeHttpUrlSchema = z
+  .string()
+  .trim()
+  .url('Invalid URL format')
+  .refine(isSafeHttpUrl, {
+    message: 'Only http:// and https:// URLs are permitted',
+  });
+
+/**
  * Validates standard email addresses (normalized to lowercase).
  */
 export const emailSchema = z.string().trim().email('Invalid email address format').toLowerCase();

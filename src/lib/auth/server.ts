@@ -8,6 +8,7 @@ import { auth } from '@clerk/nextjs/server';
 import { connectToDatabase } from '@/lib/db/mongodb';
 import { UserRepository } from '@/lib/db/repositories/user.repository';
 import { UnauthorizedError, ForbiddenError } from '@/lib/errors/app-error';
+import { logger } from '@/lib/logging/logger';
 import {
   assertRole,
   assertPermission,
@@ -15,60 +16,37 @@ import {
   assertDepartmentScope,
 } from './rbac';
 import type { Permission, ResourceContext } from './permissions';
-import type { UserRole, UserSession, UserStatus, AdminSubRole } from '@/types/user';
+import type { UserRole, UserSession } from '@/types/user';
 
 let __testSessionOverride: UserSession | null | undefined = undefined;
 
 /**
  * Test helper to override current user session in automated test environments.
+ * Strictly prohibited in production builds (throws if NODE_ENV === 'production').
  * Set to undefined in afterEach/cleanup to restore default Clerk behavior.
  */
 export function __setTestSession(session: UserSession | null | undefined): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('__setTestSession is strictly prohibited in production environments.');
+  }
   __testSessionOverride = session;
 }
 
 /**
- * Resolves the currently authenticated user session.
- * Returns null if the request is unauthenticated or user record does not exist.
+ * Resolves an authoritative UserSession strictly from a pre-provisioned MongoDB user record.
+ * Fail-closed: NEVER synthesizes an active session from Clerk JWT claims if no DB user exists.
  */
-export async function getCurrentSession(): Promise<UserSession | null> {
-  if (__testSessionOverride !== undefined) {
-    return __testSessionOverride;
-  }
-
-  const { userId, sessionId, sessionClaims } = await auth();
-  if (!userId) {
-    return null;
-  }
-
-  // Connect to DB and fetch authoritative identity
-  await connectToDatabase();
+export async function resolveProvisionedSession(
+  userId: string,
+  sessionId?: string | null
+): Promise<UserSession | null> {
   const user = await UserRepository.findByAuthProviderId(userId);
 
   if (!user) {
-    // If webhook sync is still executing, use session claims fallback
-    const metadata =
-      (sessionClaims?.publicMetadata as {
-        role?: UserRole;
-        adminSubRole?: AdminSubRole;
-        status?: UserStatus;
-        departmentId?: string;
-      }) ?? {};
-
-    return {
-      userId,
-      sessionId: sessionId ?? undefined,
-      authProviderId: userId,
-      email: (sessionClaims?.email as string) || '',
-      username: (sessionClaims?.username as string) || undefined,
-      fullName: (sessionClaims?.fullName as string) || (sessionClaims?.name as string) || undefined,
-      avatarUrl:
-        (sessionClaims?.picture as string) || (sessionClaims?.imageUrl as string) || undefined,
-      role: metadata.role || 'student',
-      adminSubRole: metadata.adminSubRole,
-      status: metadata.status || 'active',
-      departmentId: metadata.departmentId,
-    };
+    logger.warn(
+      `[Auth] Fail-closed: rejecting unprovisioned Clerk identity (${userId}) with no MongoDB user record.`
+    );
+    return null;
   }
 
   return {
@@ -87,6 +65,25 @@ export async function getCurrentSession(): Promise<UserSession | null> {
 }
 
 /**
+ * Resolves the currently authenticated user session.
+ * Returns null if the request is unauthenticated or if no provisioned MongoDB user record exists.
+ */
+export async function getCurrentSession(): Promise<UserSession | null> {
+  if (process.env.NODE_ENV !== 'production' && __testSessionOverride !== undefined) {
+    return __testSessionOverride;
+  }
+
+  const { userId, sessionId } = await auth();
+  if (!userId) {
+    return null;
+  }
+
+  // Connect to DB and fetch authoritative provisioned identity (fail-closed)
+  await connectToDatabase();
+  return resolveProvisionedSession(userId, sessionId);
+}
+
+/**
  * Asserts that the caller is authenticated and holds an active, non-suspended account.
  * Throws UnauthorizedError (401) if unauthenticated.
  * Throws ForbiddenError (403) if account is suspended, deactivated, or pending verification.
@@ -98,21 +95,25 @@ export async function requireAuth(): Promise<UserSession> {
     throw new UnauthorizedError('Authentication required. Please sign in to continue.');
   }
 
-  // Account Lifecycle Status Gates
-  if (session.status === 'suspended') {
+  // Account Lifecycle Status Gates (AUD-H12: uniformly enforce status === 'active')
+  const effectiveStatus = session.status ?? 'active';
+
+  if (effectiveStatus === 'suspended') {
     throw new ForbiddenError(
       'Account under administrative hold. Contact the Office of Academic Affairs.'
     );
   }
 
-  if (session.status === 'pending_verification') {
+  if (effectiveStatus === 'pending_verification' || effectiveStatus === 'invited') {
     throw new ForbiddenError(
-      'Account registration is pending official registrar roster verification.'
+      'Account registration is pending activation or official registrar roster verification.'
     );
   }
 
-  if (session.status === 'deactivated' || session.status === 'archived') {
-    throw new ForbiddenError('Collegiate account is inactive or has been archived.');
+  if (effectiveStatus !== 'active') {
+    throw new ForbiddenError(
+      `Collegiate account is not active (current status: ${effectiveStatus}).`
+    );
   }
 
   return session;

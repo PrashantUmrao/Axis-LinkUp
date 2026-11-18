@@ -51,10 +51,10 @@ export interface TopbarNotificationsProps {
   initialSummary?: NotificationUnreadSummaryDTO;
 }
 
-export function formatRelativeNotificationTime(isoDate: string): string {
+export function formatRelativeNotificationTime(isoDate: string, nowMs: number = Date.now()): string {
   const ts = new Date(isoDate).getTime();
   if (Number.isNaN(ts)) return 'Just now';
-  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  const diffSec = Math.max(0, Math.floor((nowMs - ts) / 1000));
   if (diffSec < 60) return 'Just now';
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin}m ago`;
@@ -62,7 +62,12 @@ export function formatRelativeNotificationTime(isoDate: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
-  return new Date(isoDate).toLocaleDateString();
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date(isoDate));
 }
 
 export function getNotificationCategoryIcon(category: NotificationCategory) {

@@ -4,6 +4,7 @@
  */
 
 import { Types } from 'mongoose';
+import connectToDatabase from '@/lib/db/mongodb';
 import DepartmentModel from '@/lib/db/models/department.model';
 import type { IDepartment, IDepartmentProgram } from '@/types/department';
 
@@ -72,10 +73,17 @@ export const DEFAULT_DEPARTMENTS = [
 ];
 
 export class DepartmentRepository {
+  private static async ensureConnection(): Promise<void> {
+    if (process.env.MONGODB_URI) {
+      await connectToDatabase();
+    }
+  }
+
   /**
    * Finds a department by internal MongoDB ObjectId.
    */
   public static async findById(id: string): Promise<IDepartment | null> {
+    await this.ensureConnection();
     if (!id || !Types.ObjectId.isValid(id)) return null;
     return DepartmentModel.findById(id).exec();
   }
@@ -84,6 +92,7 @@ export class DepartmentRepository {
    * Finds a department by official institutional code (e.g. "CSE").
    */
   public static async findByCode(code: string): Promise<IDepartment | null> {
+    await this.ensureConnection();
     if (!code || !code.trim()) return null;
     return DepartmentModel.findOne({
       code: code.toUpperCase().trim(),
@@ -95,6 +104,7 @@ export class DepartmentRepository {
    * Resolves a department by either its 24-character hex ObjectId or its code.
    */
   public static async findActiveByIdOrCode(identifier: string): Promise<IDepartment | null> {
+    await this.ensureConnection();
     if (!identifier || !identifier.trim()) return null;
 
     const trimmed = identifier.trim();
@@ -113,6 +123,7 @@ export class DepartmentRepository {
    * Retrieves all active collegiate departments.
    */
   public static async findAllActive(): Promise<IDepartment[]> {
+    await this.ensureConnection();
     return DepartmentModel.find({ isActive: true }).sort({ name: 1 }).exec();
   }
 
@@ -216,6 +227,7 @@ export class DepartmentRepository {
     hodId?: string;
     programs?: IDepartmentProgram[];
   }): Promise<IDepartment> {
+    await this.ensureConnection();
     const doc = new DepartmentModel({
       code: data.code.toUpperCase().trim(),
       name: data.name.trim(),
@@ -231,6 +243,7 @@ export class DepartmentRepository {
    * Seeds standard institutional departments and programs if the collection is empty.
    */
   public static async ensureDefaultDepartments(): Promise<void> {
+    await this.ensureConnection();
     const count = await DepartmentModel.countDocuments().exec();
     if (count > 0) return;
 

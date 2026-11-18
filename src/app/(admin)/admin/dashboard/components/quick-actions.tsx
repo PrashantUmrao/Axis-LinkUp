@@ -2,8 +2,7 @@
 
 /**
  * Administrator Dashboard Quick Actions Section.
- * Surfaces one-click navigation links to implemented routes and
- * clearly badges upcoming modules with Phase 5 tooltips.
+ * Surfaces one-click navigation links to implemented administrative workflows.
  * Styled with the approved amber accent palette and controlled glassmorphism.
  */
 
@@ -16,9 +15,6 @@ import {
   CardDescription,
   CardContent,
   Badge,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
 } from '@/components/ui';
 import {
   UserCircle,
@@ -39,7 +35,6 @@ export function AdminQuickActions() {
       description: 'Executive dispatch & departmental HOD channels',
       href: '/admin/messages',
       icon: MessageSquare,
-      isLive: true,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
     },
@@ -49,7 +44,6 @@ export function AdminQuickActions() {
       description: 'Directorate statutory appeals & ombudsman docket',
       href: '/admin/complaints',
       icon: Landmark,
-      isLive: true,
       color: 'text-indigo-500',
       bgColor: 'bg-indigo-500/10',
     },
@@ -59,7 +53,6 @@ export function AdminQuickActions() {
       description: 'Review credentials, domain, & security policies',
       href: '/shared/profile',
       icon: UserCircle,
-      isLive: true,
       color: 'text-amber-500',
       bgColor: 'bg-amber-500/10',
     },
@@ -69,10 +62,8 @@ export function AdminQuickActions() {
       description: 'Draft, schedule, & dispatch official college announcements',
       href: '/admin/notices',
       icon: Megaphone,
-      isLive: false,
       color: 'text-amber-500',
       bgColor: 'bg-amber-500/10',
-      tooltip: 'Official circulars and bulletin publishing will activate in Phase 5.',
     },
     {
       id: 'service-queues',
@@ -80,10 +71,8 @@ export function AdminQuickActions() {
       description: 'Clear student leave applications & bona fide certificates',
       href: '/admin/requests',
       icon: Inbox,
-      isLive: false,
       color: 'text-cyan-500',
       bgColor: 'bg-cyan-500/10',
-      tooltip: 'Student certificate and clearance approval queues activate in Phase 5.',
     },
     {
       id: 'facility-bookings',
@@ -91,10 +80,8 @@ export function AdminQuickActions() {
       description: 'Auditorium, seminar halls, & lab allocation management',
       href: '/admin/spaces',
       icon: Building2,
-      isLive: false,
       color: 'text-rose-500',
       bgColor: 'bg-rose-500/10',
-      tooltip: 'Campus facility and seminar room reservation tools activate in Phase 5.',
     },
   ];
 
@@ -108,7 +95,7 @@ export function AdminQuickActions() {
           <div>
             <CardTitle className="text-base font-semibold">Administrator Quick Actions</CardTitle>
             <CardDescription className="text-xs">
-              Direct ingress to verified administrative services and upcoming departmental tools
+              Direct ingress to verified administrative services and departmental tools
             </CardDescription>
           </div>
         </div>
@@ -122,72 +109,35 @@ export function AdminQuickActions() {
         {actions.map((action) => {
           const Icon = action.icon;
 
-          if (action.isLive) {
-            return (
-              <Link
-                key={action.id}
-                href={action.href}
-                className="group border-border/40 bg-muted/20 hover:bg-muted/40 relative flex flex-col justify-between rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:shadow-xs"
-              >
-                <div className="flex items-center justify-between pb-2">
-                  <div
-                    className={`flex size-9 items-center justify-center rounded-lg ${action.bgColor} ${action.color}`}
-                  >
-                    <Icon className="size-4" />
-                  </div>
-                  <Badge variant="success" className="px-1.5 py-0 text-[9px] font-normal">
-                    Live
-                  </Badge>
-                </div>
-
-                <div className="space-y-0.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-heading text-foreground text-xs font-semibold transition-colors group-hover:text-amber-500">
-                      {action.title}
-                    </span>
-                    <ArrowRight className="text-muted-foreground size-3 transition-all group-hover:translate-x-0.5 group-hover:text-amber-500" />
-                  </div>
-                  <p className="text-muted-foreground text-[11px] leading-relaxed">
-                    {action.description}
-                  </p>
-                </div>
-              </Link>
-            );
-          }
-
           return (
-            <Tooltip key={action.id}>
-              <TooltipTrigger asChild>
+            <Link
+              key={action.id}
+              href={action.href}
+              className="group border-border/40 bg-muted/20 hover:bg-muted/40 relative flex flex-col justify-between rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:shadow-xs"
+            >
+              <div className="flex items-center justify-between pb-2">
                 <div
-                  className="border-border/30 bg-muted/10 flex cursor-not-allowed flex-col justify-between rounded-xl border p-4 opacity-60 select-none"
-                  aria-disabled="true"
+                  className={`flex size-9 items-center justify-center rounded-lg ${action.bgColor} ${action.color}`}
                 >
-                  <div className="flex items-center justify-between pb-2">
-                    <div
-                      className={`flex size-9 items-center justify-center rounded-lg ${action.bgColor} ${action.color}`}
-                    >
-                      <Icon className="size-4" />
-                    </div>
-                    <Badge variant="outline" className="px-1.5 py-0 text-[9px] font-normal">
-                      Phase 5
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-0.5">
-                    <span className="font-heading text-foreground text-xs font-semibold">
-                      {action.title}
-                    </span>
-                    <p className="text-muted-foreground text-[11px] leading-relaxed">
-                      {action.description}
-                    </p>
-                  </div>
+                  <Icon className="size-4" />
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <p className="font-semibold">{action.title}</p>
-                <p className="text-muted-foreground text-[10px]">{action.tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
+                <Badge variant="success" className="px-1.5 py-0 text-[9px] font-normal">
+                  Live
+                </Badge>
+              </div>
+
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-heading text-foreground text-xs font-semibold transition-colors group-hover:text-amber-500">
+                    {action.title}
+                  </span>
+                  <ArrowRight className="text-muted-foreground size-3 transition-all group-hover:translate-x-0.5 group-hover:text-amber-500" />
+                </div>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  {action.description}
+                </p>
+              </div>
+            </Link>
           );
         })}
       </CardContent>

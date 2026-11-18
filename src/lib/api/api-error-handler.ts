@@ -40,7 +40,16 @@ function normalizeError(error: unknown): {
     };
   }
 
-  // 2. Zod Validation Errors
+  // 2. Malformed JSON Syntax Errors (AUD-H15)
+  if (error instanceof SyntaxError) {
+    return {
+      statusCode: HTTP_STATUS.BAD_REQUEST,
+      code: ERROR_CODES.BAD_REQUEST,
+      message: 'Malformed JSON request body.',
+    };
+  }
+
+  // 3. Zod Validation Errors
   if (error instanceof ZodError) {
     const formattedDetails: ApiValidationErrorDetail[] = error.issues.map((issue) => ({
       field: issue.path.join('.') || 'root',
@@ -55,20 +64,16 @@ function normalizeError(error: unknown): {
     };
   }
 
-  // 3. Mongoose / MongoDB Database Errors
+  // 4. Mongoose / MongoDB Database Errors (AUD-H15: sanitized — never leak raw keyPattern or schema internals)
   if (typeof error === 'object' && error !== null) {
     const mongoErr = error as MongooseErrorLike;
 
     // Duplicate key violation (E11000)
     if (mongoErr.code === 11000) {
-      const duplicateField = mongoErr.keyPattern
-        ? Object.keys(mongoErr.keyPattern).join(', ')
-        : 'unique field';
-
       return {
         statusCode: HTTP_STATUS.CONFLICT,
         code: ERROR_CODES.CONFLICT,
-        message: `A record with this ${duplicateField} already exists.`,
+        message: 'A record with these unique details already exists.',
       };
     }
 
@@ -81,18 +86,12 @@ function normalizeError(error: unknown): {
       };
     }
 
-    // Mongoose Schema Validation Error
+    // Mongoose Schema Validation Error (sanitized without raw schema paths/internals)
     if (mongoErr.name === 'ValidationError' && mongoErr.errors) {
-      const details: ApiValidationErrorDetail[] = Object.values(mongoErr.errors).map((err) => ({
-        field: err.path || 'unknown',
-        message: err.message || 'Invalid value',
-      }));
-
       return {
         statusCode: HTTP_STATUS.BAD_REQUEST,
         code: ERROR_CODES.VALIDATION_ERROR,
-        message: 'Database validation failed for submitted data.',
-        details,
+        message: 'Submitted data failed validation. Please review your input and try again.',
       };
     }
   }

@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { requireRole } from '@/lib/auth';
 import { UserRepository } from '@/lib/db/repositories/user.repository';
 import { toUserDTO } from '@/lib/db/models/user.model';
+import { ServiceRequestService } from '@/lib/services/service-request.service';
 import { ContentContainer } from '@/components/layouts';
 import {
   AdminWelcomeBanner,
@@ -79,17 +80,22 @@ export default async function AdminDashboardPage() {
   };
 
   try {
-    const [students, faculty, admins] = await Promise.all([
+    const [students, faculty, admins, requestStats] = await Promise.all([
       UserRepository.countByRole('student'),
       UserRepository.countByRole('faculty'),
       UserRepository.countByRole('admin'),
+      ServiceRequestService.getRequestStats(session).catch(() => null),
     ]);
+
+    const pendingRequests = requestStats
+      ? requestStats.submitted + requestStats.underReview + requestStats.actionRequired
+      : 0;
 
     counts = {
       students,
       faculty,
       admins,
-      pendingRequests: 0, // Service queue table activates in Phase 5
+      pendingRequests,
     };
   } catch {
     // Database offline or prerender fallback
@@ -118,7 +124,7 @@ export default async function AdminDashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Left Column (2 Cols): Role-Aware Scope Switcher & Workspace Modules */}
         <div className="space-y-6 lg:col-span-2">
-          <AdminWorkspaceView counts={counts} />
+          <AdminWorkspaceView counts={counts} user={userDTO} />
         </div>
 
         {/* Right Column (1 Col): Infrastructure Health Ring, Telemetry, Governance Card */}

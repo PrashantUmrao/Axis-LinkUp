@@ -47,6 +47,88 @@ const VALID_STATUS_TRANSITIONS: Record<ComplaintStatus, ComplaintStatus[]> = {
 
 export class ComplaintService {
   /**
+   * Single-source-of-truth role classification predicates for Grievance RBAC (AUD-C02 / AUD-C03).
+   */
+  private static isDirectorUser(session: UserSession): boolean {
+    return session.adminSubRole === 'director';
+  }
+
+  private static isSystemAdminUser(session: UserSession): boolean {
+    return (
+      session.adminSubRole === 'sys_admin' ||
+      (session.role === 'super_admin' && session.adminSubRole !== 'director')
+    );
+  }
+
+  private static isDepartmentHodUser(session: UserSession): boolean {
+    return (
+      session.adminSubRole === 'hod' ||
+      (session.role === 'admin' &&
+        session.adminSubRole !== 'director' &&
+        session.adminSubRole !== 'sys_admin')
+    );
+  }
+
+  private static isRegularFacultyUser(session: UserSession): boolean {
+    return session.role === 'faculty' && session.adminSubRole !== 'hod';
+  }
+
+  /**
+   * Resolves a Department HOD's authoritative departmentId, failing closed if unassigned.
+   */
+  private static async resolveHodDepartmentId(session: UserSession): Promise<string> {
+    if (session.departmentId) {
+      return session.departmentId;
+    }
+    const userDoc = await UserRepository.findById(session.userId);
+    if (!userDoc?.departmentId) {
+      throw new ForbiddenError('HOD is not assigned to any academic department.');
+    }
+    return userDoc.departmentId.toString();
+  }
+
+  /**
+   * Centralized strict DTO projection enforcing:
+   * - AUD-H01: Students NEVER receive confidential isInternal: true tribunal notes.
+   * - AUD-C03: System Administrators receive metadata-only records with all confidential
+   *   grievance fields redacted (subject, narrative, description, responses, attachments,
+   *   escalation reason, and timeline remarks).
+   */
+  private static projectComplaintForSession(
+    session: UserSession,
+    complaint: IComplaint
+  ): ComplaintDTO {
+    const dto = toComplaintDTO(complaint);
+
+    if (session.role === 'student') {
+      dto.responses = dto.responses.filter((r) => !r.isInternal);
+      dto.timeline = dto.timeline.filter((t) => t.action !== 'INTERNAL_TRIBUNAL_NOTE');
+      return dto;
+    }
+
+    if (this.isSystemAdminUser(session)) {
+      dto.subject = '[REDACTED — TRIBUNAL CONFIDENTIAL]';
+      dto.narrative = '[PROTECTED STATUTORY GRIEVANCE CONTENT — RESTRICTED TO TRIBUNAL]';
+      dto.description = '[PROTECTED STATUTORY GRIEVANCE CONTENT — RESTRICTED TO TRIBUNAL]';
+      dto.responses = [];
+      dto.attachments = [];
+      dto.detailedAttachments = [];
+      if (dto.escalation?.reason) {
+        dto.escalation = {
+          ...dto.escalation,
+          reason: '[REDACTED — TRIBUNAL CONFIDENTIAL]',
+        };
+      }
+      dto.timeline = dto.timeline.map((t) => ({
+        ...t,
+        remarks: '[REDACTED]',
+      }));
+    }
+
+    return dto;
+  }
+
+  /**
    * Submits a new grievance petition by an enrolled student.
    * Locks identity to authenticated session and computes statutory SLA.
    */
@@ -153,12 +235,13 @@ export class ComplaintService {
       timeline: [initialTimelineEvent as unknown as IComplaint['timeline'][0]],
     });
 
-    return toComplaintDTO(complaintDoc);
+    return this.projectComplaintForSession(session, complaintDoc);
   }
 
   /**
    * Retrieves a paginated list of complaints based on caller persona.
-   * Strictly enforces Departmental Isolation (HOD) and Personal Scope (Student).
+   * Strictly enforces Departmental Isolation (HOD), Assigned-Only Scope (Faculty),
+   * Personal Scope (Student), Ombudsman Scope (Director), and Metadata-Only Scope (SysAdmin).
    */
   static async getComplaints(
     session: UserSession,
@@ -175,48 +258,25 @@ export class ComplaintService {
     if (session.role === 'student') {
       // Students strictly see only their own complaints
       result = await ComplaintRepository.findStudentComplaints(session.userId, params);
-    } else if (
-      session.adminSubRole === 'hod' ||
-      (session.role === 'faculty' && session.departmentId) ||
-      (session.role === 'admin' && session.departmentId)
-    ) {
-      // HOD scope: strictly departmental complaints addressed to HOD
-      if (!session.departmentId) {
-        const userDoc = await UserRepository.findById(session.userId);
-        if (!userDoc?.departmentId) {
-          throw new ForbiddenError('HOD is not assigned to any academic department.');
-        }
-        result = await ComplaintRepository.findDepartmentComplaints(
-          userDoc.departmentId.toString(),
-          params
-        );
-      } else {
-        result = await ComplaintRepository.findDepartmentComplaints(session.departmentId, params);
-      }
-    } else if (session.adminSubRole === 'director' || session.role === 'super_admin') {
-      if (session.adminSubRole === 'sys_admin') {
-        // System Administrator oversight: global list
-        result = await ComplaintRepository.findAllComplaints(params);
-      } else {
-        // Directorate ombudsman: directly addressed + escalated
-        result = await ComplaintRepository.findDirectorComplaints(params);
-      }
+    } else if (this.isRegularFacultyUser(session)) {
+      // Regular non-HOD faculty see ONLY complaints explicitly assigned to them as inquiry officer
+      result = await ComplaintRepository.findAssignedComplaints(session.userId, params);
+    } else if (this.isDepartmentHodUser(session)) {
+      // HOD scope: strictly departmental complaints addressed to HOD (fail closed if unassigned)
+      const deptId = await this.resolveHodDepartmentId(session);
+      result = await ComplaintRepository.findDepartmentComplaints(deptId, params);
+    } else if (this.isDirectorUser(session)) {
+      // Directorate ombudsman: directly addressed + escalated
+      result = await ComplaintRepository.findDirectorComplaints(params);
+    } else if (this.isSystemAdminUser(session)) {
+      // System Administrator oversight: global metadata-only list (all confidential fields redacted below)
+      result = await ComplaintRepository.findAllComplaints(params);
     } else {
       throw new ForbiddenError('Your role is not authorized to access grievance console.');
     }
 
     const totalPages = Math.ceil(result.total / params.limit) || 1;
-
-    // Apply SysAdmin privacy protection if sys_admin is viewing without direct ombudsman sub-role
-    const complaints = result.complaints.map((c) => {
-      const dto = toComplaintDTO(c);
-      if (session.role === 'super_admin' && session.adminSubRole === 'sys_admin') {
-        // Redact confidential narrative for privacy boundary preservation
-        dto.narrative = '[PROTECTED STATUTORY GRIEVANCE CONTENT — RESTRICTED TO TRIBUNAL]';
-        dto.description = '[PROTECTED STATUTORY GRIEVANCE CONTENT — RESTRICTED TO TRIBUNAL]';
-      }
-      return dto;
-    });
+    const complaints = result.complaints.map((c) => this.projectComplaintForSession(session, c));
 
     return {
       complaints,
@@ -236,17 +296,13 @@ export class ComplaintService {
       throw new NotFoundError('Grievance complaint record not found.');
     }
 
-    this.assertCanAccessComplaint(session, complaint);
+    const hodDeptId = this.isDepartmentHodUser(session)
+      ? await this.resolveHodDepartmentId(session)
+      : undefined;
 
-    const dto = toComplaintDTO(complaint);
+    this.assertCanAccessComplaint(session, complaint, hodDeptId);
 
-    // Apply SysAdmin privacy protection if sys_admin is viewing without direct ombudsman sub-role
-    if (session.role === 'super_admin' && session.adminSubRole === 'sys_admin') {
-      dto.narrative = '[PROTECTED STATUTORY GRIEVANCE CONTENT — RESTRICTED TO TRIBUNAL]';
-      dto.description = '[PROTECTED STATUTORY GRIEVANCE CONTENT — RESTRICTED TO TRIBUNAL]';
-    }
-
-    return dto;
+    return this.projectComplaintForSession(session, complaint);
   }
 
   /**
@@ -257,12 +313,23 @@ export class ComplaintService {
     complaintId: string,
     input: AddComplaintResponseInput
   ): Promise<ComplaintDTO> {
+    // AUD-C03: System Administrators cannot post responses on statutory grievances
+    if (this.isSystemAdminUser(session)) {
+      throw new ForbiddenError(
+        'System Administrators cannot post responses on statutory grievances.'
+      );
+    }
+
     const complaint = await ComplaintRepository.findById(complaintId);
     if (!complaint) {
       throw new NotFoundError('Grievance complaint record not found.');
     }
 
-    this.assertCanAccessComplaint(session, complaint);
+    const hodDeptId = this.isDepartmentHodUser(session)
+      ? await this.resolveHodDepartmentId(session)
+      : undefined;
+
+    this.assertCanAccessComplaint(session, complaint, hodDeptId);
 
     // Check if complaint is closed/terminal
     if (complaint.status === 'closed' && session.role === 'student') {
@@ -282,6 +349,8 @@ export class ComplaintService {
       uploadedAt: now,
     }));
 
+    // AUD-H01: Students can NEVER mark their own responses as internal tribunal notes
+    const isInternalNote = isStudent ? false : (input.isInternal ?? false);
     const responseData = {
       authorId: new Types.ObjectId(session.userId),
       authorName: session.fullName || 'Official Responder',
@@ -290,24 +359,34 @@ export class ComplaintService {
       message: input.message.trim(),
       actionTaken: input.actionTaken?.trim() || undefined,
       attachments,
-      isInternal: input.isInternal ?? false,
+      isInternal: isInternalNote,
       createdAt: now,
     };
 
-    // Determine status mutation: if authority responds to submitted/under_review, move to in_progress
+    // Determine status mutation: if authority issues a public response to submitted/under_review, move to in_progress
     let newStatus: ComplaintStatus | undefined = undefined;
-    if (!isStudent && (complaint.status === 'submitted' || complaint.status === 'under_review')) {
+    if (
+      !isStudent &&
+      !isInternalNote &&
+      (complaint.status === 'submitted' || complaint.status === 'under_review')
+    ) {
       newStatus = 'in_progress';
     }
 
     const timelineEvent = {
       previousStatus: complaint.status,
       newStatus: newStatus || complaint.status,
-      action: isStudent ? 'STUDENT_FOLLOWUP_ADDED' : 'AUTHORITY_RESPONSE_ISSUED',
+      action: isStudent
+        ? 'STUDENT_FOLLOWUP_ADDED'
+        : isInternalNote
+          ? 'INTERNAL_TRIBUNAL_NOTE'
+          : 'AUTHORITY_RESPONSE_ISSUED',
       changedById: new Types.ObjectId(session.userId),
       changedByName: session.fullName || 'Collegiate Member',
       changedByRole: session.role,
-      remarks: input.actionTaken || (isStudent ? 'Follow-up submitted' : 'Response issued to student'),
+      remarks: isInternalNote
+        ? 'Confidential internal tribunal note recorded.'
+        : input.actionTaken || (isStudent ? 'Follow-up submitted' : 'Response issued to student'),
       timestamp: now,
     };
 
@@ -322,7 +401,7 @@ export class ComplaintService {
       throw new NotFoundError('Failed to record response. Complaint was not found.');
     }
 
-    return toComplaintDTO(updated);
+    return this.projectComplaintForSession(session, updated);
   }
 
   /**
@@ -333,12 +412,30 @@ export class ComplaintService {
     complaintId: string,
     input: UpdateComplaintStatusInput
   ): Promise<ComplaintDTO> {
+    // AUD-C03: System Administrators cannot adjudicate or alter statutory grievance status
+    if (this.isSystemAdminUser(session)) {
+      throw new ForbiddenError(
+        'System Administrators cannot adjudicate or alter statutory grievance status.'
+      );
+    }
+
+    // AUD-C02: Regular non-HOD faculty cannot alter complaint status
+    if (this.isRegularFacultyUser(session)) {
+      throw new ForbiddenError(
+        'Only appointed Department HODs or Directors can alter complaint status.'
+      );
+    }
+
     const complaint = await ComplaintRepository.findById(complaintId);
     if (!complaint) {
       throw new NotFoundError('Grievance complaint record not found.');
     }
 
-    this.assertCanAccessComplaint(session, complaint);
+    const hodDeptId = this.isDepartmentHodUser(session)
+      ? await this.resolveHodDepartmentId(session)
+      : undefined;
+
+    this.assertCanAccessComplaint(session, complaint, hodDeptId);
 
     const currentStatus = complaint.status;
     const requestedStatus = input.status;
@@ -355,8 +452,6 @@ export class ComplaintService {
           'Students can only mark grievances as closed (accepting resolution) or reopened (appealing).'
         );
       }
-    } else if (session.role === 'faculty' && session.adminSubRole !== 'hod') {
-      throw new ForbiddenError('Only appointed Department HODs or Directors can alter complaint status.');
     }
 
     // Validate lifecycle state transition graph
@@ -391,7 +486,7 @@ export class ComplaintService {
       throw new NotFoundError('Failed to update status. Complaint was not found.');
     }
 
-    return toComplaintDTO(updated);
+    return this.projectComplaintForSession(session, updated);
   }
 
   /**
@@ -402,17 +497,33 @@ export class ComplaintService {
     complaintId: string,
     input: EscalateComplaintInput
   ): Promise<ComplaintDTO> {
+    // AUD-C02 / AUD-C03: System Administrators and regular faculty cannot escalate grievances
+    if (this.isSystemAdminUser(session)) {
+      throw new ForbiddenError('System Administrators cannot escalate statutory grievances.');
+    }
+    if (this.isRegularFacultyUser(session)) {
+      throw new ForbiddenError(
+        'Regular faculty members are not authorized to escalate grievance petitions.'
+      );
+    }
+
     const complaint = await ComplaintRepository.findById(complaintId);
     if (!complaint) {
       throw new NotFoundError('Grievance complaint record not found.');
     }
 
-    this.assertCanAccessComplaint(session, complaint);
+    const hodDeptId = this.isDepartmentHodUser(session)
+      ? await this.resolveHodDepartmentId(session)
+      : undefined;
 
-    // Only HODs or Students whose SLA was breached can escalate
+    this.assertCanAccessComplaint(session, complaint, hodDeptId);
+
+    // Only same-department HOD (on HOD-addressed complaints) or student owner after SLA breach can escalate
     const isDeptHod =
-      (session.adminSubRole === 'hod' || session.role === 'faculty' || session.role === 'admin') &&
-      complaint.departmentId.toString() === session.departmentId;
+      this.isDepartmentHodUser(session) &&
+      hodDeptId !== undefined &&
+      complaint.departmentId.toString() === hodDeptId &&
+      complaint.recipientRole === 'hod';
 
     const isStudentOwner =
       session.role === 'student' && complaint.studentId.toString() === session.userId;
@@ -427,6 +538,22 @@ export class ComplaintService {
 
     if (complaint.status === 'resolved' || complaint.status === 'closed') {
       throw new ValidationError('Cannot escalate a resolved or closed grievance.');
+    }
+
+    // Enforce statutory SLA breach prerequisite for student self-escalation
+    if (isStudentOwner) {
+      const deadlineMs = complaint.sla?.deadline
+        ? new Date(complaint.sla.deadline).getTime()
+        : null;
+      const isSlaBreached =
+        complaint.sla?.isBreached === true ||
+        (deadlineMs !== null && !Number.isNaN(deadlineMs) && deadlineMs < Date.now());
+
+      if (!isSlaBreached) {
+        throw new ForbiddenError(
+          'Student self-escalation is permitted only after the statutory SLA deadline has been breached.'
+        );
+      }
     }
 
     const now = new Date();
@@ -455,7 +582,7 @@ export class ComplaintService {
       throw new NotFoundError('Failed to escalate grievance.');
     }
 
-    return toComplaintDTO(updated);
+    return this.projectComplaintForSession(session, updated);
   }
 
   /**
@@ -466,16 +593,33 @@ export class ComplaintService {
     complaintId: string,
     input: AssignComplaintInput
   ): Promise<ComplaintDTO> {
+    // AUD-C02 / AUD-C03: Explicitly block System Administrators and regular faculty
+    if (this.isSystemAdminUser(session) || this.isRegularFacultyUser(session)) {
+      throw new ForbiddenError('Only HODs or Directorate leadership may assign inquiry officers.');
+    }
+
     const complaint = await ComplaintRepository.findById(complaintId);
     if (!complaint) {
       throw new NotFoundError('Grievance complaint record not found.');
     }
 
-    // Only HOD of department or Director can assign
-    const isDeptHod =
-      (session.adminSubRole === 'hod' || session.role === 'admin') &&
-      complaint.departmentId.toString() === session.departmentId;
-    const isDirector = session.adminSubRole === 'director' || session.role === 'super_admin';
+    const isDirector = this.isDirectorUser(session);
+    let isDeptHod = false;
+
+    if (this.isDepartmentHodUser(session)) {
+      const hodDeptId = await this.resolveHodDepartmentId(session);
+      if (complaint.departmentId.toString() !== hodDeptId) {
+        throw new ForbiddenError(
+          'Departmental clearance violation. You cannot assign grievances from other academic departments.'
+        );
+      }
+      if (complaint.recipientRole !== 'hod') {
+        throw new ForbiddenError(
+          'Access clearance denied. Complaints addressed directly to the Executive Director cannot be assigned by a Department HOD.'
+        );
+      }
+      isDeptHod = true;
+    }
 
     if (!isDeptHod && !isDirector) {
       throw new ForbiddenError('Only HODs or Directorate leadership may assign inquiry officers.');
@@ -515,7 +659,7 @@ export class ComplaintService {
       throw new NotFoundError('Failed to assign grievance inquiry officer.');
     }
 
-    return toComplaintDTO(updated);
+    return this.projectComplaintForSession(session, updated);
   }
 
   /**
@@ -528,29 +672,28 @@ export class ComplaintService {
       });
     }
 
-    if (
-      session.adminSubRole === 'hod' ||
-      (session.role === 'faculty' && session.departmentId) ||
-      (session.role === 'admin' && session.departmentId)
-    ) {
-      let deptId = session.departmentId;
-      if (!deptId) {
-        const userDoc = await UserRepository.findById(session.userId);
-        deptId = userDoc?.departmentId?.toString();
-      }
+    // AUD-C02: Regular non-HOD faculty are NOT grievance administrators
+    if (this.isRegularFacultyUser(session)) {
+      throw new ForbiddenError(
+        'Regular faculty members are not authorized to access departmental grievance metrics.'
+      );
+    }
+
+    if (this.isDepartmentHodUser(session)) {
+      const deptId = await this.resolveHodDepartmentId(session);
       return await ComplaintRepository.getStats({
         departmentId: new Types.ObjectId(deptId),
         recipientRole: 'hod',
       });
     }
 
-    if (session.adminSubRole === 'director') {
+    if (this.isDirectorUser(session)) {
       return await ComplaintRepository.getStats({
         $or: [{ recipientRole: 'director' }, { 'escalation.isEscalated': true }],
       });
     }
 
-    if (session.role === 'super_admin') {
+    if (this.isSystemAdminUser(session)) {
       return await ComplaintRepository.getStats({});
     }
 
@@ -561,7 +704,11 @@ export class ComplaintService {
    * Asserts whether an authenticated UserSession possesses clearance to access a specific complaint.
    * Zero-Trust evaluation: Deny-by-default.
    */
-  private static assertCanAccessComplaint(session: UserSession, complaint: IComplaint): void {
+  private static assertCanAccessComplaint(
+    session: UserSession,
+    complaint: IComplaint,
+    resolvedHodDeptId?: string
+  ): void {
     // 1. Student ownership
     if (session.role === 'student') {
       if (complaint.studentId.toString() !== session.userId) {
@@ -570,37 +717,50 @@ export class ComplaintService {
       return;
     }
 
-    // 2. Assigned investigator match
-    if (complaint.assignedTo?.id && complaint.assignedTo.id.toString() === session.userId) {
-      return;
+    // 2. Assigned inquiry officer match (applies to regular faculty and assigned officers)
+    const isAssignedInvestigator = Boolean(
+      complaint.assignedTo?.id && complaint.assignedTo.id.toString() === session.userId
+    );
+
+    // 3. Regular non-HOD faculty: strictly assigned inquiry officer ONLY (AUD-C02)
+    if (this.isRegularFacultyUser(session)) {
+      if (isAssignedInvestigator) {
+        return;
+      }
+      throw new ForbiddenError(
+        'Access clearance denied. Regular faculty may only access grievances explicitly assigned to them as inquiry officer.'
+      );
     }
 
-    // 3. Department HOD scope
-    const isHod =
-      session.adminSubRole === 'hod' ||
-      (session.role === 'faculty' && session.departmentId) ||
-      (session.role === 'admin' && session.departmentId);
+    // 4. Department HOD scope: own department AND recipientRole === 'hod' (or explicitly assigned)
+    if (this.isDepartmentHodUser(session)) {
+      if (isAssignedInvestigator) {
+        return;
+      }
 
-    if (isHod) {
-      if (complaint.departmentId.toString() !== session.departmentId) {
+      const deptId = resolvedHodDeptId ?? session.departmentId;
+      if (!deptId || complaint.departmentId.toString() !== deptId) {
         throw new ForbiddenError(
           'Departmental clearance violation. You cannot access grievances from other academic departments.'
         );
       }
-      return;
-    }
 
-    // 4. Directorate Ombudsman scope
-    if (session.adminSubRole === 'director') {
-      if (complaint.recipientRole === 'director' || complaint.escalation?.isEscalated) {
-        return;
+      if (complaint.recipientRole !== 'hod') {
+        throw new ForbiddenError(
+          'Access clearance denied. Complaints addressed directly to the Executive Director are restricted to the Directorate Ombudsman.'
+        );
       }
-      // If director requests department-level complaint, permit for institutional ombudsman oversight
+
       return;
     }
 
-    // 5. System Administrator oversight
-    if (session.role === 'super_admin') {
+    // 5. Executive Director Ombudsman scope
+    if (this.isDirectorUser(session)) {
+      return;
+    }
+
+    // 6. System Administrator read-only metadata oversight (mutations rejected separately in callers)
+    if (this.isSystemAdminUser(session)) {
       return;
     }
 

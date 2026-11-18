@@ -413,6 +413,13 @@ export class ChatService {
       if (!updated) {
         throw new NotFoundError('Failed to update group membership.');
       }
+
+      // AUD-C10: Non-blockingly revoke active Ably tokens for removed members so they cannot
+      // continue subscribing to this group channel until natural token expiry.
+      await Promise.allSettled(
+        input.userIds.map((removedUserId) => AblyBroker.revokeUserTokens(removedUserId))
+      );
+
       return this.toConversationDTO(updated, session.userId);
     }
 

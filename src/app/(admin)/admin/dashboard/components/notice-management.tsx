@@ -41,9 +41,17 @@ import {
 
 interface AdminNoticeManagementProps {
   activeScope?: 'sys_admin' | 'hod' | 'director';
+  currentUserRole?: string;
+  currentUserId?: string;
+  departmentId?: string | null;
 }
 
-export function AdminNoticeManagement({ activeScope = 'sys_admin' }: AdminNoticeManagementProps) {
+export function AdminNoticeManagement({
+  activeScope = 'sys_admin',
+  currentUserRole = 'admin',
+  currentUserId,
+  departmentId = null,
+}: AdminNoticeManagementProps) {
   const [notices, setNotices] = useState<NoticeDTO[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -296,7 +304,14 @@ export function AdminNoticeManagement({ activeScope = 'sys_admin' }: AdminNotice
                     </div>
                     <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
                       <Calendar className="size-3" />
-                      <span>{new Date(notice.createdAt).toLocaleDateString()}</span>
+                      <span>
+                        {new Intl.DateTimeFormat('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          timeZone: 'Asia/Kolkata',
+                        }).format(new Date(notice.createdAt))}
+                      </span>
                     </div>
                   </div>
 
@@ -351,7 +366,8 @@ export function AdminNoticeManagement({ activeScope = 'sys_admin' }: AdminNotice
         isOpen={isDetailOpen}
         onClose={() => setIsDetailOpen(false)}
         onNoticeUpdated={handleNoticeUpdated}
-        currentUserRole="super_admin"
+        currentUserRole={currentUserRole}
+        currentUserId={currentUserId}
       />
 
       {/* Notice Form Dialog */}
@@ -359,8 +375,9 @@ export function AdminNoticeManagement({ activeScope = 'sys_admin' }: AdminNotice
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onNoticeCreated={handleNoticeCreated}
-        currentUserRole="super_admin"
+        currentUserRole={currentUserRole}
         adminSubRole={activeScope}
+        departmentId={departmentId}
       />
     </>
   );

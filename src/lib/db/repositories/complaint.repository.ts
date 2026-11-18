@@ -17,7 +17,87 @@ import type {
   ComplaintCategory,
   ComplaintPriority,
 } from '@/types/complaints';
-import type { ComplaintQueryParams } from '@/lib/validations/complaint.schema';
+import {
+  COMPLAINT_SORT_FIELDS,
+  type ComplaintQueryParams,
+} from '@/lib/validations/complaint.schema';
+
+/**
+ * Escapes regex metacharacters in user-provided search strings (ReDoS & syntax error defense).
+ */
+export function escapeComplaintRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const ALLOWED_COMPLAINT_SORT_SET = new Set<string>(COMPLAINT_SORT_FIELDS);
+
+/**
+ * Composes an immutable MongoDB query filter by combining the authoritative baseFilter
+ * with caller-supplied narrowing conditions via $and (AUD-C01).
+ * Caller parameters can NEVER overwrite baseFilter security boundaries.
+ */
+export function buildComplaintQueryFilter(
+  baseFilter: Record<string, unknown>,
+  params: Partial<ComplaintQueryParams> = {},
+  options: { allowScopeFilters?: boolean } = {}
+): Record<string, unknown> {
+  const userConditions: Record<string, unknown>[] = [];
+  const allowScopeFilters = options.allowScopeFilters === true;
+
+  if (params.status) {
+    userConditions.push({ status: params.status });
+  }
+  if (params.category) {
+    userConditions.push({ category: params.category });
+  }
+  if (params.priority) {
+    userConditions.push({ priority: params.priority });
+  }
+
+  // Scope filters (recipientRole / departmentId) are permitted ONLY for institutional Director/SysAdmin queries
+  if (allowScopeFilters) {
+    if (params.recipientRole) {
+      userConditions.push({ recipientRole: params.recipientRole });
+    }
+    if (params.departmentId && Types.ObjectId.isValid(params.departmentId)) {
+      userConditions.push({ departmentId: new Types.ObjectId(params.departmentId) });
+    }
+  }
+
+  if (typeof params.isEscalated === 'boolean') {
+    userConditions.push({ 'escalation.isEscalated': params.isEscalated });
+  }
+  if (params.isBreached === true) {
+    userConditions.push({
+      status: { $nin: ['resolved', 'closed', 'rejected'] },
+      'sla.deadline': { $lt: new Date() },
+    });
+  }
+
+  if (params.search && params.search.trim().length > 0) {
+    const safeSearch = escapeComplaintRegex(params.search.trim());
+    const searchRegex = new RegExp(safeSearch, 'i');
+    userConditions.push({
+      $or: [
+        { ticketNumber: searchRegex },
+        { subject: searchRegex },
+        { 'studentSnapshot.fullName': searchRegex },
+        { 'studentSnapshot.rollNumber': searchRegex },
+      ],
+    });
+  }
+
+  const hasBaseFilter = Object.keys(baseFilter).length > 0;
+  if (userConditions.length === 0) {
+    return hasBaseFilter ? { ...baseFilter } : {};
+  }
+
+  if (!hasBaseFilter) {
+    return userConditions.length === 1 ? userConditions[0]! : { $and: userConditions };
+  }
+
+  return { $and: [baseFilter, ...userConditions] };
+}
 
 export class ComplaintRepository {
   /**
@@ -87,7 +167,21 @@ export class ComplaintRepository {
       studentId: new Types.ObjectId(String(studentId)),
     };
 
-    return this.queryWithFilters(filter, params);
+    return this.queryWithFilters(filter, params, { allowScopeFilters: false });
+  }
+
+  /**
+   * Retrieves complaints explicitly assigned to a specific inquiry officer / faculty mentor.
+   */
+  static async findAssignedComplaints(
+    assigneeId: string | Types.ObjectId,
+    params: Partial<ComplaintQueryParams> = {}
+  ): Promise<{ complaints: IComplaint[]; total: number }> {
+    const filter: Record<string, unknown> = {
+      'assignedTo.id': new Types.ObjectId(String(assigneeId)),
+    };
+
+    return this.queryWithFilters(filter, params, { allowScopeFilters: false });
   }
 
   /**
@@ -102,7 +196,7 @@ export class ComplaintRepository {
       recipientRole: 'hod',
     };
 
-    return this.queryWithFilters(filter, params);
+    return this.queryWithFilters(filter, params, { allowScopeFilters: false });
   }
 
   /**
@@ -115,7 +209,7 @@ export class ComplaintRepository {
       $or: [{ recipientRole: 'director' }, { 'escalation.isEscalated': true }],
     };
 
-    return this.queryWithFilters(filter, params);
+    return this.queryWithFilters(filter, params, { allowScopeFilters: true });
   }
 
   /**
@@ -124,7 +218,7 @@ export class ComplaintRepository {
   static async findAllComplaints(
     params: Partial<ComplaintQueryParams> = {}
   ): Promise<{ complaints: IComplaint[]; total: number }> {
-    return this.queryWithFilters({}, params);
+    return this.queryWithFilters({}, params, { allowScopeFilters: true });
   }
 
   /**
@@ -339,53 +433,22 @@ export class ComplaintRepository {
   }
 
   /**
-   * Internal helper executing filtered and paginated queries.
+   * Internal helper executing filtered and paginated queries with immutable scope enforcement.
    */
   private static async queryWithFilters(
     baseFilter: Record<string, unknown>,
-    params: Partial<ComplaintQueryParams>
+    params: Partial<ComplaintQueryParams>,
+    options: { allowScopeFilters?: boolean } = {}
   ): Promise<{ complaints: IComplaint[]; total: number }> {
     await connectToDatabase();
-    const filter: Record<string, unknown> = { ...baseFilter };
-
-    if (params.status) {
-      filter.status = params.status;
-    }
-    if (params.category) {
-      filter.category = params.category;
-    }
-    if (params.priority) {
-      filter.priority = params.priority;
-    }
-    if (params.recipientRole) {
-      filter.recipientRole = params.recipientRole;
-    }
-    if (params.departmentId && Types.ObjectId.isValid(params.departmentId)) {
-      filter.departmentId = new Types.ObjectId(params.departmentId);
-    }
-    if (typeof params.isEscalated === 'boolean') {
-      filter['escalation.isEscalated'] = params.isEscalated;
-    }
-    if (params.isBreached === true) {
-      filter.status = { $nin: ['resolved', 'closed', 'rejected'] };
-      filter['sla.deadline'] = { $lt: new Date() };
-    }
-
-    if (params.search) {
-      const searchRegex = new RegExp(params.search.trim(), 'i');
-      filter.$or = [
-        { ticketNumber: searchRegex },
-        { subject: searchRegex },
-        { 'studentSnapshot.fullName': searchRegex },
-        { 'studentSnapshot.rollNumber': searchRegex },
-      ];
-    }
+    const filter = buildComplaintQueryFilter(baseFilter, params, options);
 
     const page = Math.max(1, params.page || 1);
     const limit = Math.max(1, Math.min(100, params.limit || 20));
     const skip = (page - 1) * limit;
 
-    const sortField = params.sortBy || 'createdAt';
+    const candidateSort = params.sortBy || 'createdAt';
+    const sortField = ALLOWED_COMPLAINT_SORT_SET.has(candidateSort) ? candidateSort : 'createdAt';
     const sortOrder = params.sortOrder === 'asc' ? 1 : -1;
     const sort = { [sortField]: sortOrder } as const;
 

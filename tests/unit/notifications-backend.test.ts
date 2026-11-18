@@ -143,6 +143,14 @@ describe('Phase 5.13 — Unified Notification Center Backend & API', () => {
       return doc;
     };
 
+    NotificationRepository.createMany = async (items) => {
+      const createdDocs: INotification[] = [];
+      for (const data of items) {
+        createdDocs.push(await NotificationRepository.create(data));
+      }
+      return createdDocs;
+    };
+
     NotificationRepository.findRecentDuplicate = async (userId, dedupeKey, windowMs = 60_000) => {
       const cutoff = Date.now() - windowMs;
       return (

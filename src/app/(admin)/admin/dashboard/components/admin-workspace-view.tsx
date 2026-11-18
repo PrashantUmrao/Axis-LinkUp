@@ -21,16 +21,21 @@ import {
   type AdminMetricsCounts,
 } from './';
 import { ShieldCheck, Scale, Landmark } from 'lucide-react';
+import type { UserDTO } from '@/types/user';
 
 interface AdminWorkspaceViewProps {
   counts: AdminMetricsCounts;
+  user?: UserDTO;
 }
 
 type AdminScope = 'sys_admin' | 'hod' | 'director';
 
-export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
+export function AdminWorkspaceView({ counts, user }: AdminWorkspaceViewProps) {
   const [activeScope, setActiveScope] = useState<AdminScope>('sys_admin');
   const [refreshKey, setRefreshKey] = useState(0);
+  const currentUserRole = user?.role ?? 'admin';
+  const currentUserId = user?.id;
+  const departmentId = user?.departmentId ?? null;
 
   return (
     <div className="space-y-6">
@@ -97,13 +102,22 @@ export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
           <AdminUserManagement key={refreshKey} counts={counts} />
 
           {/* Student Service Requisition Queues */}
-          <AdminRequestTracking />
+          <AdminRequestTracking pendingRequests={counts.pendingRequests} />
 
           {/* Department Notices & Circulars Desk */}
-          <AdminNoticeManagement activeScope={activeScope} />
+          <AdminNoticeManagement
+            activeScope={activeScope}
+            currentUserRole={currentUserRole}
+            currentUserId={currentUserId}
+            departmentId={departmentId}
+          />
 
           {/* Campus Polls & Student Feedback */}
-          <AdminPollManagement activeScope={activeScope} />
+          <AdminPollManagement
+            activeScope={activeScope}
+            currentUserRole={currentUserRole}
+            departmentId={departmentId}
+          />
 
           {/* Quick Actions Shortcuts */}
           <AdminQuickActions />
@@ -116,13 +130,22 @@ export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
           <HodGrievanceDesk />
 
           {/* Student Service Requisition Queues */}
-          <AdminRequestTracking />
+          <AdminRequestTracking pendingRequests={counts.pendingRequests} />
 
           {/* Department Notices & Circulars Desk */}
-          <AdminNoticeManagement activeScope={activeScope} />
+          <AdminNoticeManagement
+            activeScope={activeScope}
+            currentUserRole={currentUserRole}
+            currentUserId={currentUserId}
+            departmentId={departmentId}
+          />
 
           {/* Campus Polls & Student Feedback */}
-          <AdminPollManagement activeScope={activeScope} />
+          <AdminPollManagement
+            activeScope={activeScope}
+            currentUserRole={currentUserRole}
+            departmentId={departmentId}
+          />
 
           {/* User Directory for Department */}
           <AdminUserManagement counts={counts} />
@@ -138,10 +161,19 @@ export function AdminWorkspaceView({ counts }: AdminWorkspaceViewProps) {
           <HodGrievanceDesk />
 
           {/* Department Notices & Circulars Desk */}
-          <AdminNoticeManagement activeScope={activeScope} />
+          <AdminNoticeManagement
+            activeScope={activeScope}
+            currentUserRole={currentUserRole}
+            currentUserId={currentUserId}
+            departmentId={departmentId}
+          />
 
           {/* Campus Polls & Student Feedback */}
-          <AdminPollManagement activeScope={activeScope} />
+          <AdminPollManagement
+            activeScope={activeScope}
+            currentUserRole={currentUserRole}
+            departmentId={departmentId}
+          />
 
           {/* User Management Directory */}
           <AdminUserManagement counts={counts} />

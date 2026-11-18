@@ -27,7 +27,6 @@ import { OtpRepository } from '../../src/lib/db/repositories/otp.repository';
 import { DepartmentRepository } from '../../src/lib/db/repositories/department.repository';
 import {
   ValidationError,
-  ConflictError,
   ForbiddenError,
   AppError,
 } from '../../src/lib/errors/app-error';
@@ -203,7 +202,7 @@ describe('Phase 5.2.9 — 3. Token Reuse & Replay Prevention', () => {
     mock.reset();
   });
 
-  test('activation token attempt on already active account is rejected with ConflictError', async () => {
+  test('activation token attempt on already active account with cleared token is rejected without leaking account status', async () => {
     const rawToken = 'a'.repeat(64);
 
     const alreadyActiveUser = {
@@ -224,8 +223,8 @@ describe('Phase 5.2.9 — 3. Token Reuse & Replay Prevention', () => {
         await ActivationService.validateInvitation(rawToken, testEmail);
       },
       (err: unknown) => {
-        assert.ok(err instanceof ConflictError);
-        assert.ok(err.message.includes('already been activated'));
+        assert.ok(err instanceof ValidationError);
+        assert.ok(err.message.includes('no longer valid'));
         return true;
       }
     );

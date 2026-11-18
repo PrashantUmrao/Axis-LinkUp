@@ -84,13 +84,24 @@ export class ActivationService {
     const normalizedEmail = validated.email.toLowerCase().trim();
 
     const user = await UserRepository.findByEmail(normalizedEmail);
-    if (!user) {
-      throw new NotFoundError(
-        `No collegiate account found for institutional email "${normalizedEmail}".`
+    const providedHash = this.hashToken(validated.token);
+
+    // 1. Anti-Enumeration & Timing-Safe Token Proof Verification FIRST (AUD-H11)
+    // Never reveal account existence or lifecycle status to callers who do not hold the valid secret token.
+    const storedHash = user?.activationTokenHash || '';
+    const hasMatchingToken =
+      Boolean(user) &&
+      storedHash.length === providedHash.length &&
+      storedHash.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(providedHash, 'utf8'), Buffer.from(storedHash, 'utf8'));
+
+    if (!user || !hasMatchingToken) {
+      throw new ValidationError(
+        'This activation invitation is invalid, tampered, has already been used, or is no longer valid.'
       );
     }
 
-    // 1. Account Lifecycle Boundary Assertions
+    // 2. Account Lifecycle Boundary Assertions (evaluated ONLY after cryptographic token proof passes)
     if (user.status === 'suspended') {
       throw new ForbiddenError(
         'Suspended collegiate accounts cannot be activated without authorized administrative intervention.'
@@ -101,26 +112,17 @@ export class ActivationService {
       throw new ForbiddenError('Deactivated accounts cannot be activated.');
     }
 
+    if (user.status === 'archived' || user.status === 'graduated') {
+      throw new ForbiddenError('Archived or graduated accounts cannot be activated.');
+    }
+
     if (user.status === 'active' || user.activatedAt) {
       throw new ConflictError(
         'This collegiate account has already been activated. Please proceed to sign in.'
       );
     }
 
-    // 2. Token Existence & Replay Assertions
-    if (!user.activationTokenHash) {
-      throw new ValidationError(
-        'This activation invitation has already been used or is no longer valid. Please request a new invitation.'
-      );
-    }
-
-    // 3. Cryptographic Token Hash Verification
-    const providedHash = this.hashToken(validated.token);
-    if (providedHash !== user.activationTokenHash) {
-      throw new ValidationError('Invalid or tampered activation token.');
-    }
-
-    // 4. Token Expiration Assertion (HTTP 410 Gone)
+    // 3. Token Expiration Assertion (HTTP 410 Gone)
     if (user.activationTokenExpiresAt && new Date() > user.activationTokenExpiresAt) {
       throw new AppError(
         'This activation invitation has expired. Please contact your system administrator to request a new invitation.',

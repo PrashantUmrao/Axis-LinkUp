@@ -13,6 +13,7 @@ import {
   ValidationError,
 } from '@/lib/errors/app-error';
 import { assertCanManageUserRoles } from '@/lib/auth/rbac';
+import { SessionService } from '@/lib/auth/session';
 import type { UserDTO, UserSession, UserRole, UserStatus, AdminSubRole } from '@/types/user';
 
 export class UserService {
@@ -171,6 +172,18 @@ export class UserService {
       throw new NotFoundError('User', targetUserId);
     }
 
+    // AUD-H12: Non-blockingly revoke active Clerk sessions on institutional role mutation
+    if (updated.authProviderId) {
+      try {
+        await SessionService.revokeAllUserSessions(
+          updated.authProviderId,
+          `Institutional role updated to ${newRole}`
+        );
+      } catch {
+        // Non-blocking revocation
+      }
+    }
+
     return toUserDTO(updated);
   }
 
@@ -191,6 +204,18 @@ export class UserService {
     const updated = await UserRepository.updateStatus(targetUserId, newStatus);
     if (!updated) {
       throw new NotFoundError('User', targetUserId);
+    }
+
+    // AUD-H12: Non-blockingly revoke active Clerk sessions whenever account transitions to non-active status
+    if (newStatus !== 'active' && updated.authProviderId) {
+      try {
+        await SessionService.revokeAllUserSessions(
+          updated.authProviderId,
+          `Account status updated to ${newStatus}`
+        );
+      } catch {
+        // Non-blocking revocation
+      }
     }
 
     return toUserDTO(updated);

@@ -4,17 +4,28 @@ import { successResponse } from '@/lib/api/api-response';
 import { HTTP_STATUS } from '@/config/constants';
 import { handleApiError } from '@/lib/api/api-error-handler';
 import { activateAccountSchema } from '@/lib/validations/activation.schema';
+import {
+  checkRateLimit,
+  createRateLimitErrorResponse,
+  getClientIp,
+} from '@/lib/security/rate-limiter';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/v1/auth/activation/complete
  * Completes the first-time account activation workflow.
- * Sets the user's permanent password in Clerk IAM and transitions status from
- * 'pending_verification' to 'active' in MongoDB with atomic replay prevention.
+ * Enforces sliding-window IP rate limiting (5/60s) and atomic replay prevention.
  */
 export async function POST(req: NextRequest) {
   try {
+    const rateLimit = checkRateLimit(`auth:activation-complete:${getClientIp(req)}`, {
+      maxRequests: 5,
+      windowMs: 60_000,
+    });
+    if (!rateLimit.allowed) {
+      return createRateLimitErrorResponse(rateLimit);
+    }
     let body: unknown;
     try {
       body = await req.json();
